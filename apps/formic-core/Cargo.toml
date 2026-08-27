@@ -5,3 +5,15 @@ edition = "2024"
 
 [dependencies]
 formic-common = { path = "../../libs/formic-common" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dependencies.windows-sys]
+version = "0.52.0"
+features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",         # <-- Requerido para ReadDirectoryChangesW
+    "Win32_System_Threading",
+    "Win32_Security",
+]
+

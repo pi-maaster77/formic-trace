@@ -1,4 +1,4 @@
-**Formic** es un motor de seguridad de **Whitelist/Default-Deny** para Windows, ligero y ultrarrápido, desarrollado en **Rust** e impulsado por **Lua**. Su objetivo es erradicar la incertidumbre en el software: si un ejecutable o biblioteca no está explícitamente declarado, firmado o verificado por hash, **simplemente no se ejecuta**.
+**Formic** es un motor de seguridad de **Whitelist/Default-Deny** para Windows, ligero y ultrarrápido, desarrollado en **Rust** e impulsado por **Nickel**. Su objetivo es erradicar la incertidumbre en el software: si un ejecutable o biblioteca no está explícitamente declarado, firmado o verificado por hash, **simplemente no se ejecuta**.
 
 ---
 
@@ -32,10 +32,10 @@
 
 1. **Unidad Ejecutable Multillamada (`formic.exe`):** Un único binario compilado en Rust desde Linux (cross-compilation con MinGW) que asume roles de servicio `SYSTEM`, GUI o cliente CLI según la invocación.
 2. **Core en Rust (Las Manos):** Un servicio de fondo permanente que interactúa con la API nativa de Windows (`WinVerifyTrust`, `ReadDirectoryChangesW`, ETW), garantizando seguridad de memoria, rendimiento tipo C++ y cero colapsos.
-3. **Control Total en Lua (El Cerebro):** Un motor de reglas dinámicas que recibe datos de Rust y extiende el control del sistema. Permite gestionar servicios, claves del Registro, firewall o políticas mediante scripts sencillos.
+3. **Control Total en Nickel (El Cerebro):** Un motor de reglas dinámicas que recibe datos de Rust y extiende el control del sistema. Permite gestionar servicios, claves del Registro, firewall o políticas mediante scripts sencillos.
 4. **Interfaz Dual para el Usuario:**
 * **Vista "Estilo Access":** Una grilla visual ultra intuitiva con interruptores para activar/desactivar programas o conjuntos de reglas sin escribir código.
-* **Vista de Código:** Editor integrado con resaltado de sintaxis para personalizar directamente el `formic.json` o las funciones en Lua.
+* **Vista de Código:** Editor integrado con resaltado de sintaxis para personalizar directamente el `formic.json` o las funciones en Nickel.
 
 
 

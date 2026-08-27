@@ -1,38 +1,38 @@
-#
-# Formic Trace - Declarative Application Whitelisting for Windows
-# File: /shell.nix
-# 
-# Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
-# 
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-#
+{ pkgs ? import <nixpkgs> { } }:
 
-{ pkgs ? import <nixpkgs> {} }:
+let
+  fenix = import (fetchTarball "https://github.com/nix-community/fenix/archive/main.tar.gz") { };
 
-pkgs.mkShell {
-  buildInputs = with pkgs; [
-    rustc
-    cargo
-    rust-analyzer
-    clippy
-    rustfmt
-    
-    # Necesario para compilar librerías en C con las que interactúe Rust
-    gcc
-    pkg-config
+  rustToolchain = fenix.combine [
+    fenix.stable.cargo
+    fenix.stable.rustc
+    fenix.stable.rust-analyzer
+    fenix.stable.clippy
+    fenix.stable.rustfmt
+    fenix.targets.x86_64-pc-windows-gnu.stable.rust-std
   ];
 
-  # Define librerías de sistema si las necesitas (ej. OpenSSL)
-  # buildInputs = [ pkgs.openssl ];
+  crossPkgs = pkgs.pkgsCross.mingwW64;
+in
+pkgs.mkShell {
+  # Herramientas que se ejecutan en el HOST (tu PC Linux x86_64)
+  nativeBuildInputs = [
+    rustToolchain
+    pkgs.gcc                          # Proveé 'cc' para proc-macros / build.rs en Linux
+    crossPkgs.stdenv.cc               # Cross-compiler (x86_64-w64-mingw32-gcc)
+    pkgs.pkg-config
+  ];
+
+  # Librerías para el TARGET (Windows)
+  buildInputs = [
+    crossPkgs.windows.pthreads
+  ];
+
+  # Configuración explícita de linkers para Cargo
+  CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "${crossPkgs.stdenv.cc}/bin/x86_64-w64-mingw32-gcc";
+  
+  # Asegura que el linker nativo 'cc' sea accesible para la arquitectura Host
+  CC_x86_64_unknown_linux_gnu = "${pkgs.gcc}/bin/gcc";
+
+  PKG_CONFIG_ALLOW_CROSS = "1";
 }
