@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/formic-core",
+    "apps/formic-gui",
+    "apps/formic-admin-cli",
+    "apps/formic-user-cli",
+    "libs/formic-common",
+]

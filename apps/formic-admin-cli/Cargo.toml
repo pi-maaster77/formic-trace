@@ -1,0 +1,7 @@
+[package]
+name = "formic-admin-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+formic-common = { path = "../../libs/formic-common" }
