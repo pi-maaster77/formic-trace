@@ -22,14 +22,14 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
-use crate::shared::models::{FileAction, FileEvent};
+use crate::shared::models::{FileAction, FileEvent, SystemEvent};
 
 pub struct FileMonitor {
     _watcher: RecommendedWatcher,
 }
 
 impl FileMonitor {
-    pub fn new<P: AsRef<Path>>(path: P, tx: Sender<FileEvent>) -> Result<Self, String> {
+    pub fn new<P: AsRef<Path>>(path: P, tx: Sender<SystemEvent>) -> Result<Self, String> {
         let watch_path = path.as_ref().to_path_buf();
 
         let watcher_tx = tx;
@@ -49,7 +49,7 @@ impl FileMonitor {
                                 path: p,
                                 action: action.clone(),
                             };
-                            let _ = watcher_tx.send(file_event);
+                            let _ = watcher_tx.send(SystemEvent::File(file_event));
                         }
                     }
                 }

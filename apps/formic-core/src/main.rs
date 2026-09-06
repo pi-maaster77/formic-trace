@@ -18,25 +18,23 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+mod cli;
 mod config;
 mod engine;
 mod logger;
 mod notifier;
 mod platform;
 mod shared;
-mod cli;
 
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use std::sync::mpsc;
 
 use logger::{LogLevel, Logger};
 use shared::models::RuleAction;
+use crate::shared::models::{Config, SystemEvent};
 
-/// Resuelve una ruta válida para monitorear en disco
 fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
-    // 1. Si hay una ruta especificada en el archivo de configuración y existe, la usa
     if let Some(path_str) = configured_path {
         let p = PathBuf::from(path_str);
         if p.exists() {
@@ -44,7 +42,6 @@ fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
         }
     }
 
-    // 2. Fallback a la carpeta Temp del perfil de usuario (%USERPROFILE%\AppData\Local\Temp)
     if let Ok(user_profile) = env::var("USERPROFILE") {
         let user_temp = PathBuf::from(user_profile).join(r"AppData\Local\Temp");
         if user_temp.exists() {
@@ -52,7 +49,6 @@ fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
         }
     }
 
-    // 3. Fallback a la variable %TEMP%
     if let Ok(temp_env) = env::var("TEMP") {
         let temp_path = PathBuf::from(temp_env);
         if temp_path.exists() {
@@ -60,7 +56,6 @@ fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
         }
     }
 
-    // 4. Fallback final al directorio de ejecución actual
     env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
@@ -68,7 +63,6 @@ fn run_service() {
     let logger = Logger::new(Some("formic.log"));
     logger.log(LogLevel::Info, "Inicializando Formic Core Daemon...");
 
-    // Cargar archivo de configuración declarativo
     let config_path = Path::new("formic.json");
     let config = match config::load_config(config_path) {
         Ok(cfg) => cfg,
@@ -77,61 +71,62 @@ fn run_service() {
                 LogLevel::Warn,
                 &format!("Configuración no cargada ({}), aplicando fallback por defecto.", err),
             );
-            shared::models::Config {
-                watch_path: resolve_watch_dir(None).to_string_lossy().to_string(),
+            Config {
+                watch_paths: vec![resolve_watch_dir(None).to_string_lossy().to_string()],
                 default_action: RuleAction::Allow,
                 rules: vec![],
             }
         }
     };
 
-    // Validar y resolver la ruta final a monitorear
-    let watch_path = resolve_watch_dir(Some(&config.watch_path));
+    let first_watch_path = config.watch_paths.first().map(|s| s.as_str());
+    let watch_path = resolve_watch_dir(first_watch_path);
     logger.log(
         LogLevel::Info,
         &format!("Monitoreando directorio: {}", watch_path.display()),
     );
 
-    // Canal de comunicación MPSC (Productor: FileMonitor, Consumidor: Engine Loop)
-    let (tx, rx) = mpsc::channel();
+    // Canal MPSC unificado para todos los monitores
+    let (tx, rx) = mpsc::channel::<SystemEvent>();
 
-    // Inicializar el monitor de archivos sin unsafe mediante 'notify'
-    let _monitor = match platform::fs_monitor::FileMonitor::new(&watch_path, tx) {
-        Ok(m) => m,
-        Err(err) => {
-            logger.log(
-                LogLevel::Error,
-                &format!("Error fatal al iniciar monitor: {}", err),
-            );
-            exit(1);
-        }
-    };
+    let _fs_monitor = platform::fs_monitor::FileMonitor::new(&watch_path, tx.clone());
+    let _proc_monitor = platform::process_monitor::ProcessMonitor::start(tx.clone());
+    let _reg_monitor = platform::registry_monitor::RegistryMonitor::start_watch(tx.clone());
+    let _net_monitor = platform::net_monitor::NetMonitor::start_watch(tx.clone());
 
     logger.log(LogLevel::Info, "Servicio de monitoreo iniciado. Escuchando eventos...");
 
-    // Bucle principal de consumo de eventos (Pegamento)
+    // Único bucle de procesamiento de eventos en la cola
     for event in rx {
         let decision = engine::evaluator::evaluate(&event, &config);
         let rule_name = decision.matched_rule.unwrap_or("DefaultPolicy");
+
+        // Formateo descriptivo según la variante recibida
+        let event_info = match &event {
+            SystemEvent::File(e) => format!("FS: {:?} | Acción: {:?}", e.path, e.action),
+            SystemEvent::Process(e) => format!("PROC: {:?} (PID: {})", e.path, e.pid),
+            SystemEvent::Registry(e) => format!("REG: {:?}", e.key_path),
+            SystemEvent::Net(e) => format!("NET: {}:{}", e.remote_addr, e.remote_port),
+        };
 
         match decision.action {
             RuleAction::Allow => {
                 logger.log(
                     LogLevel::Info,
-                    &format!("[ALLOW] Path: {:?} | Acción: {:?}", event.path, event.action),
+                    &format!("[ALLOW] {}", event_info),
                 );
             }
             RuleAction::Warn => {
                 logger.log(
                     LogLevel::Warn,
-                    &format!("[WARN] Path: {:?} | Acción: {:?}", event.path, event.action),
+                    &format!("[WARN] {}", event_info),
                 );
                 notifier::notify_event(&event, rule_name, &decision.action);
             }
             RuleAction::Block => {
                 logger.log(
                     LogLevel::Error,
-                    &format!("[BLOCK] Path: {:?} | Acción: {:?}", event.path, event.action),
+                    &format!("[BLOCK] {}", event_info),
                 );
                 notifier::notify_event(&event, rule_name, &decision.action);
             }

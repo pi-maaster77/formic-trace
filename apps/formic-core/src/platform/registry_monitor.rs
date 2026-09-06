@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/platform/mod.rs
+* File: /apps/formic-core/src/platform/registery_monitor.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -18,7 +18,19 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-pub mod fs_monitor;
-pub mod net_monitor;
-pub mod process_monitor;
-pub mod registry_monitor;
+use std::sync::mpsc::Sender;
+use std::thread;
+use crate::shared::models::SystemEvent;
+
+pub struct RegistryMonitor;
+
+impl RegistryMonitor {
+    pub fn start_watch(_tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            // TODO: Enganchar RegNotifyChangeKeyValue para llaves clave de persistencia
+            loop {
+                thread::sleep(std::time::Duration::from_secs(5));
+            }
+        })
+    }
+}

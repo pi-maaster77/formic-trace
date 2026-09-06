@@ -18,22 +18,23 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::shared::models::{FileEvent, RuleAction};
+use crate::shared::models::{RuleAction, SystemEvent};
 
-pub fn notify_event(event: &FileEvent, rule_name: &str, action: &RuleAction) {
-    match action {
-        RuleAction::Block => {
-            eprintln!(
-                "[ALERTA DE SEGURIDAD] Operación BLOQUEADA en {:?} por la regla '{}'",
-                event.path, rule_name
-            );
-        }
-        RuleAction::Warn => {
-            println!(
-                "[ADVERTENCIA] Actividad sospechosa en {:?} (Regla: '{}')",
-                event.path, rule_name
-            );
-        }
-        RuleAction::Allow => {}
-    }
+pub fn notify_event(event: &SystemEvent, rule_name: &str, action: &RuleAction) {
+    let title = match action {
+        RuleAction::Block => "Formic Trace - Evento Bloqueado",
+        RuleAction::Warn => "Formic Trace - Advertencia de Seguridad",
+        RuleAction::Allow => "Formic Trace - Evento Permitido",
+    };
+
+    let details = match event {
+        SystemEvent::File(e) => format!("Archivo: {:?}\nAcción: {:?}", e.path, e.action),
+        SystemEvent::Process(e) => format!("Proceso: {:?}\nPID: {}\nCMD: {}", e.path, e.pid, e.command_line),
+        SystemEvent::Registry(e) => format!("Registro: {}\nClave: {}", e.key_path, e.value_name),
+        SystemEvent::Net(e) => format!("Red: {}:{} ({})", e.remote_addr, e.remote_port, e.protocol),
+    };
+
+    let message = format!("Regla: {}\n{}", rule_name, details);
+
+    println!("[NOTIFIER] [{}] {}", title, message.replace('\n', " | "));
 }

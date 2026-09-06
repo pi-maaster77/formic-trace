@@ -18,22 +18,39 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::shared::models::{Config, FileEvent, RuleAction};
+use crate::shared::models::{Config, PolicyDecision, SystemEvent};
 
-pub struct PolicyDecision<'a> {
-    pub action: RuleAction,
-    pub matched_rule: Option<&'a str>,
-}
+pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a Config) -> PolicyDecision<'a> {
+    match event {
+        SystemEvent::File(file_event) => {
+            let path_str = file_event.path.to_string_lossy();
 
-pub fn evaluate<'a>(event: &FileEvent, config: &'a Config) -> PolicyDecision<'a> {
-    let path_str = event.path.to_string_lossy();
+            for rule in &config.rules {
+                if path_str.contains(&rule.path_pattern) {
+                    return PolicyDecision {
+                        action: rule.action.clone(),
+                        matched_rule: Some(&rule.name),
+                    };
+                }
+            }
+        }
+        SystemEvent::Process(proc_event) => {
+            let exe_str = proc_event.path.to_string_lossy();
 
-    for rule in &config.rules {
-        if path_str.contains(&rule.path_pattern) {
-            return PolicyDecision {
-                action: rule.action.clone(),
-                matched_rule: Some(&rule.name),
-            };
+            for rule in &config.rules {
+                if exe_str.contains(&rule.path_pattern) {
+                    return PolicyDecision {
+                        action: rule.action.clone(),
+                        matched_rule: Some(&rule.name),
+                    };
+                }
+            }
+        }
+        SystemEvent::Registry(_reg_event) => {
+            // Lógica de evaluación para claves de registro
+        }
+        SystemEvent::Net(_net_event) => {
+            // Lógica de evaluación para conexiones de red
         }
     }
 

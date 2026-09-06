@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/platform/mod.rs
+* File: /apps/formic-core/src/platform/process_monitor.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -18,7 +18,21 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-pub mod fs_monitor;
-pub mod net_monitor;
-pub mod process_monitor;
-pub mod registry_monitor;
+use std::sync::mpsc::Sender;
+use std::thread;
+use std::time::Duration;
+use crate::shared::models::SystemEvent;
+
+pub struct ProcessMonitor;
+
+impl ProcessMonitor {
+    pub fn start(_tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            // Aquí se consulta la tabla de procesos en bucle o vía ETW
+            loop {
+                // TODO: Enumerar procesos activos o capturar eventos de WMI/ETW
+                thread::sleep(Duration::from_secs(2));
+            }
+        })
+    }
+}

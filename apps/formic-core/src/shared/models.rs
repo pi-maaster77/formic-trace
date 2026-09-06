@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileAction {
     Created,
     Modified,
@@ -29,17 +29,30 @@ pub enum FileAction {
     Renamed,
 }
 
-#[derive(Debug, Clone)]
-pub struct FileEvent {
-    pub path: PathBuf,
-    pub action: FileAction,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RegAction {
+    KeyCreated,
+    ValueModified,
+    ValueDeleted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProcessAction {
+    Spawned,
+    Terminated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum NetAction {
+    ConnectionEstablished,
+    Listening,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RuleAction {
     Allow,
-    Block,
     Warn,
+    Block,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +64,54 @@ pub struct Rule {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub watch_path: String,
+    pub watch_paths: Vec<String>,
     pub default_action: RuleAction,
     pub rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PolicyDecision<'a> {
+    pub action: RuleAction,
+    pub matched_rule: Option<&'a str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileEvent {
+    pub path: PathBuf,
+    pub action: FileAction,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessEvent {
+    pub pid: u32,
+    pub ppid: u32,
+    pub path: PathBuf,
+    pub command_line: String,
+    pub action: ProcessAction,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegistryEvent {
+    pub key_path: String,
+    pub value_name: String,
+    pub action: RegAction,
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NetEvent {
+    pub pid: u32,
+    pub local_addr: String,
+    pub remote_addr: String,
+    pub remote_port: u16,
+    pub protocol: String,
+    pub action: NetAction,
+}
+
+#[derive(Debug, Clone)]
+pub enum SystemEvent {
+    File(FileEvent),
+    Registry(RegistryEvent),
+    Process(ProcessEvent),
+    Net(NetEvent),
 }
