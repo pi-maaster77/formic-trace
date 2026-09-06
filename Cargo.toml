@@ -7,3 +7,4 @@ members = [
     "apps/formic-user-cli",
     "libs/formic-common",
 ]
+

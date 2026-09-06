@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/shared/models.rs
+* File: /apps/formic-core/src/engine/evaluator.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -18,40 +18,27 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use crate::shared::models::{Config, FileEvent, RuleAction};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileAction {
-    Created,
-    Modified,
-    Deleted,
-    Renamed,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileEvent {
-    pub path: PathBuf,
-    pub action: FileAction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RuleAction {
-    Allow,
-    Block,
-    Warn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rule {
-    pub name: String,
-    pub path_pattern: String,
+pub struct PolicyDecision<'a> {
     pub action: RuleAction,
+    pub matched_rule: Option<&'a str>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub watch_path: String,
-    pub default_action: RuleAction,
-    pub rules: Vec<Rule>,
+pub fn evaluate<'a>(event: &FileEvent, config: &'a Config) -> PolicyDecision<'a> {
+    let path_str = event.path.to_string_lossy();
+
+    for rule in &config.rules {
+        if path_str.contains(&rule.path_pattern) {
+            return PolicyDecision {
+                action: rule.action.clone(),
+                matched_rule: Some(&rule.name),
+            };
+        }
+    }
+
+    PolicyDecision {
+        action: config.default_action.clone(),
+        matched_rule: None,
+    }
 }

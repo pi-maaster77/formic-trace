@@ -4,16 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Librería compartida del espacio de trabajo
 formic-common = { path = "../../libs/formic-common" }
+
+# Monitoreo de archivos en Safe Rust (reemplaza a windows-sys)
+notify = "6.1"
+
+# Serialización y deserialización de datos / reglas (formic.json)
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
-[dependencies.windows-sys]
-version = "0.52.0"
-features = [
-    "Win32_Foundation",
-    "Win32_Storage_FileSystem",
-    "Win32_System_IO",         # <-- Requerido para ReadDirectoryChangesW
-    "Win32_System_Threading",
-    "Win32_Security",
-]
-
+# (Opcional recomendado) Si decides mantener referencias nativas puntuales 
+# para funcionalidades específicas de Windows fuera del monitor:
+# [dependencies.windows-sys]
+# version = "0.52.0"
+# features = [
+#     "Win32_Foundation",
+#     "Win32_Security",
+# ]

@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/shared/models.rs
+* File: /apps/formic-core/src/notifier.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -18,40 +18,22 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use crate::shared::models::{FileEvent, RuleAction};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileAction {
-    Created,
-    Modified,
-    Deleted,
-    Renamed,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileEvent {
-    pub path: PathBuf,
-    pub action: FileAction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RuleAction {
-    Allow,
-    Block,
-    Warn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rule {
-    pub name: String,
-    pub path_pattern: String,
-    pub action: RuleAction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub watch_path: String,
-    pub default_action: RuleAction,
-    pub rules: Vec<Rule>,
+pub fn notify_event(event: &FileEvent, rule_name: &str, action: &RuleAction) {
+    match action {
+        RuleAction::Block => {
+            eprintln!(
+                "[ALERTA DE SEGURIDAD] Operación BLOQUEADA en {:?} por la regla '{}'",
+                event.path, rule_name
+            );
+        }
+        RuleAction::Warn => {
+            println!(
+                "[ADVERTENCIA] Actividad sospechosa en {:?} (Regla: '{}')",
+                event.path, rule_name
+            );
+        }
+        RuleAction::Allow => {}
+    }
 }

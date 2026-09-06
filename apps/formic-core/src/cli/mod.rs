@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/cli/mod.rs
+* File: /apps/formic-core/src/engine/cli/mod.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -19,10 +19,5 @@
 */
 
 pub fn run(args: &[String]) {
-    println!("[Formic CLI] Invocado con argumentos: {:?}", args);
-    if args.contains(&"--status".to_string()) {
-        println!("Formic Core Service: RUNNING");
-    } else {
-        println!("Uso: formic --cli [--status]");
-    }
+    println!("[Formic CLI] Módulo CLI ejecutado con args: {:?}", args);
 }

@@ -18,138 +18,53 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::os::windows::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-use std::ptr::{null, null_mut};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::path::Path;
 use std::sync::mpsc::Sender;
-use std::thread;
-
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
-    FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_FILE_NAME,
-    FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-};
 
 use crate::shared::models::{FileAction, FileEvent};
 
 pub struct FileMonitor {
-    handle: HANDLE,
+    _watcher: RecommendedWatcher,
 }
-
-pub type DirectoryMonitor = FileMonitor;
 
 impl FileMonitor {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let path_ref = path.as_ref();
-        let path_utf16: Vec<u16> = path_ref
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
+    pub fn new<P: AsRef<Path>>(path: P, tx: Sender<FileEvent>) -> Result<Self, String> {
+        let watch_path = path.as_ref().to_path_buf();
 
-        unsafe {
-            let handle = CreateFileW(
-                path_utf16.as_ptr(),
-                FILE_LIST_DIRECTORY,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                null(),
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                0,
-            );
+        let watcher_tx = tx;
+        let mut watcher = RecommendedWatcher::new(
+            move |res: Result<Event, notify::Error>| match res {
+                Ok(event) => {
+                    let action = match event.kind {
+                        EventKind::Create(_) => Some(FileAction::Created),
+                        EventKind::Remove(_) => Some(FileAction::Deleted),
+                        EventKind::Modify(_) => Some(FileAction::Modified),
+                        _ => None,
+                    };
 
-            if handle == INVALID_HANDLE_VALUE {
-                let err_code = GetLastError();
-                return Err(format!(
-                    "No se pudo abrir el directorio para monitoreo en '{}' (Win32 Error Code: {})",
-                    path_ref.display(),
-                    err_code
-                ));
-            }
-
-            Ok(Self { handle })
-        }
-    }
-
-    pub fn start_worker(self, tx: Sender<FileEvent>) -> thread::JoinHandle<()> {
-        thread::spawn(move || loop {
-            if let Err(_e) = self.read_changes(&tx) {
-                break;
-            }
-        })
-    }
-
-    pub fn read_changes(&self, tx: &Sender<FileEvent>) -> Result<(), String> {
-        let mut buffer = [0u8; 1024];
-        let mut bytes_returned = 0u32;
-
-        let filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE;
-
-        unsafe {
-            let success = ReadDirectoryChangesW(
-                self.handle,
-                buffer.as_mut_ptr() as *mut _,
-                buffer.len() as u32,
-                1, // watch_subtree = TRUE
-                filter,
-                &mut bytes_returned,
-                null_mut(),
-                None,
-            );
-
-            if success == 0 {
-                let err_code = GetLastError();
-                return Err(format!(
-                    "Error al leer cambios en el directorio (Win32 Error Code: {})",
-                    err_code
-                ));
-            }
-
-            let mut offset = 0usize;
-            loop {
-                let info = &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION);
-
-                let name_len = (info.FileNameLength / 2) as usize;
-                let name_slice = std::slice::from_raw_parts(info.FileName.as_ptr(), name_len);
-                let path = PathBuf::from(String::from_utf16_lossy(name_slice));
-
-                let action = match info.Action {
-                    FILE_ACTION_ADDED => Some(FileAction::Created),
-                    FILE_ACTION_REMOVED => Some(FileAction::Deleted),
-                    FILE_ACTION_MODIFIED => Some(FileAction::Modified),
-                    FILE_ACTION_RENAMED_OLD_NAME | FILE_ACTION_RENAMED_NEW_NAME => {
-                        Some(FileAction::Renamed)
-                    }
-                    _ => None,
-                };
-
-                if let Some(action) = action {
-                    let event = FileEvent { path, action };
-                    if tx.send(event).is_err() {
-                        return Err("Canal de eventos cerrado".to_string());
+                    if let Some(action) = action {
+                        for p in event.paths {
+                            let file_event = FileEvent {
+                                path: p,
+                                action: action.clone(),
+                            };
+                            let _ = watcher_tx.send(file_event);
+                        }
                     }
                 }
-
-                if info.NextEntryOffset == 0 {
-                    break;
+                Err(e) => {
+                    eprintln!("[Error en FileWatcher]: {:?}", e);
                 }
-                offset += info.NextEntryOffset as usize;
-            }
-        }
+            },
+            Config::default(),
+        )
+        .map_err(|e| format!("Error al inicializar el watcher: {}", e))?;
 
-        Ok(())
-    }
-}
+        watcher
+            .watch(&watch_path, RecursiveMode::Recursive)
+            .map_err(|e| format!("No se pudo monitorear '{}': {}", watch_path.display(), e))?;
 
-impl Drop for FileMonitor {
-    fn drop(&mut self) {
-        if self.handle != INVALID_HANDLE_VALUE && self.handle != 0 {
-            unsafe {
-                CloseHandle(self.handle);
-            }
-        }
+        Ok(Self { _watcher: watcher })
     }
 }
