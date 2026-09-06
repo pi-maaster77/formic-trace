@@ -4,10 +4,8 @@
 
 ### Lo que pretende hacer
 
-* **Cero Confianza (Default-Deny):** En lugar de buscar malware conocido por firmas (como un antivirus tradicional), bloquea absolutamente todo lo que no esté en su lista de permitidos (`formic.json`).
+* **Cero Confianza (Default-Deny):** En lugar de buscar malware conocido por firmas (como un antivirus tradicional), bloquea absolutamente todo lo que no esté en su lista de permitidos (`formic.ncl`).
 * **Soporte sin Infierno ("Funciona en mi máquina"):** Aprovecha el determinismo estricto. Si una configuración no replica un error, el problema es una inconsistencia del motor, garantizando comportamiento matemático exacto.
-* **Modo Aprendizaje Dinámico:** Captura automáticamente ejecutables y bibliotecas durante la instalación de software legítimo para generar reglas sin intervención manual compleja.
-
 ---
 
 ### Arquitectura en 3 Capas
@@ -24,7 +22,7 @@
 └────────────────────────────┬────────────────────────────┘
                              │  Bindings Rust
 ┌────────────────────────────▼────────────────────────────┐
-│                    Sandbox de Lua                       │
+│                   Sandbox de Nickel                     │
 │ • Motor de Reglas Dinámicas    • Hardening de Windows   │
 └─────────────────────────────────────────────────────────┘
 
@@ -42,3 +40,4 @@
 ---
 
 **En resumen:** Formic combina la rigidez determinista de la infraestructura moderna (tipo Nix o Kubernetes) con la simplicidad de un panel visual e interactivo, convirtiendo los mecanismos nativos de Windows en un escudo de seguridad inexpugnable.
+
