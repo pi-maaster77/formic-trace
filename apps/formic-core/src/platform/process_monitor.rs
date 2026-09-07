@@ -21,41 +21,48 @@
 use std::collections::HashSet;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::Duration;
-
 use sysinfo::{ProcessRefreshKind, System};
 
+use crate::config::ProcessConfig;
 use crate::shared::models::{ProcessAction, ProcessEvent, SystemEvent};
 
 pub struct ProcessMonitor;
 
 impl ProcessMonitor {
-    pub fn start(tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+    pub fn start(config: &ProcessConfig, tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+        let interval = config.poll_interval();
+        let track_cmdline = config.track_cmdline;
+
         thread::spawn(move || {
             let mut sys = System::new();
             let mut known_pids = HashSet::new();
 
             loop {
                 sys.refresh_processes_specifics(ProcessRefreshKind::everything());
-
                 let current_pids: HashSet<_> = sys.processes().keys().copied().collect();
 
-                // Detección de nuevos procesos (Spawned)
                 for pid in current_pids.difference(&known_pids) {
                     if let Some(proc_) = sys.process(*pid) {
+                        let cmd_line = if track_cmdline {
+                            proc_.cmd().join(" ")
+                        } else {
+                            String::new()
+                        };
+
                         let proc_event = ProcessEvent {
                             pid: pid.as_u32(),
                             ppid: proc_.parent().map(|p| p.as_u32()).unwrap_or(0),
                             path: proc_.exe().map(|p| p.to_path_buf()).unwrap_or_default(),
-                            command_line: proc_.cmd().join(" "),
+                            command_line: cmd_line,
                             action: ProcessAction::Spawned,
                         };
+
                         let _ = tx.send(SystemEvent::Process(proc_event));
                     }
                 }
 
                 known_pids = current_pids;
-                thread::sleep(Duration::from_millis(500));
+                thread::sleep(interval);
             }
         })
     }

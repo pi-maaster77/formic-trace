@@ -105,7 +105,10 @@ pub struct NetEvent {
     pub remote_addr: String,
     pub remote_port: u16,
     pub protocol: String,
-    pub action: NetAction,
+    pub action: String,
+    pub interface: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -115,3 +118,4 @@ pub enum SystemEvent {
     Process(ProcessEvent),
     Net(NetEvent),
 }
+

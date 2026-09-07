@@ -18,22 +18,89 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::shared::models::Config;
-use std::fs;
+use serde::Deserialize;
 use std::path::Path;
+use std::time::Duration;
 
-pub fn load_config<P: AsRef<Path>>(path: P) -> Result<Config, String> {
-    let file_path = path.as_ref();
-    
-    if !file_path.exists() {
-        return Err(format!("El archivo de configuración no existe: {}", file_path.display()));
+use crate::shared::models::RuleAction;
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Rule {
+    pub name: String,
+    pub path_pattern: String,
+    pub action: RuleAction,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FsConfig {
+    pub monitor: bool,
+    #[serde(default)]
+    pub watch_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct NetConfig {
+    pub monitor: bool,
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+    #[serde(default)]
+    pub monitored_ports: Vec<u16>,
+}
+
+impl NetConfig {
+    pub fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.poll_interval_ms)
     }
+}
 
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("Error al leer {}: {}", file_path.display(), e))?;
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProcessConfig {
+    pub monitor: bool,
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+    pub track_cmdline: bool,
+}
 
-    let config: Config = serde_json::from_str(&content)
-        .map_err(|e| format!("Error al parsear JSON de configuración: {}", e))?;
+impl ProcessConfig {
+    pub fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.poll_interval_ms)
+    }
+}
 
-    Ok(config)
+#[derive(Debug, Deserialize, Clone)]
+pub struct RegistryConfig {
+    pub monitor: bool,
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+    #[serde(default)]
+    pub keys_to_watch: Vec<String>,
+}
+
+impl RegistryConfig {
+    pub fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.poll_interval_ms)
+    }
+}
+
+fn default_poll_interval_ms() -> u64 {
+    1000
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FormicConfig {
+    pub fs: FsConfig,
+    pub net: NetConfig,
+    pub process: ProcessConfig,
+    pub registry: RegistryConfig,
+    pub rules: Vec<Rule>,
+    pub default_action: RuleAction,
+}
+
+pub fn load_config<P: AsRef<Path>>(path: P) -> Result<FormicConfig, String> {
+    let json_str = eval_nickel_to_json(path.as_ref())?;
+    serde_json::from_str(&json_str).map_err(|e| e.to_string())
+}
+
+fn eval_nickel_to_json(_path: &Path) -> Result<String, String> {
+    todo!()
 }

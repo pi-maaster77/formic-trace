@@ -41,3 +41,11 @@
 
 **En resumen:** Formic combina la rigidez determinista de la infraestructura moderna (tipo Nix o Kubernetes) con la simplicidad de un panel visual e interactivo, convirtiendo los mecanismos nativos de Windows en un escudo de seguridad inexpugnable.
 
+---
+
+## Licencia
+
+Este proyecto se distribuye bajo la licencia **GNU General Public License v3.0 (GPLv3)**. 
+
+### Excepción para archivos de configuración
+Los archivos de configuración y reglas declarativas ubicados dentro del directorio `/config/` se distribuyen bajo la **Licencia MIT** para permitir que los usuarios y administradores adapten, reutilicen y compartan sus políticas libremente sin restricciones de Copyleft.

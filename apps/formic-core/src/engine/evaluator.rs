@@ -18,13 +18,13 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::shared::models::{Config, PolicyDecision, SystemEvent};
+use crate::config::FormicConfig;
+use crate::shared::models::{PolicyDecision, SystemEvent};
 
-pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a Config) -> PolicyDecision<'a> {
+pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a FormicConfig) -> PolicyDecision<'a> {
     match event {
         SystemEvent::File(file_event) => {
             let path_str = file_event.path.to_string_lossy();
-
             for rule in &config.rules {
                 if path_str.contains(&rule.path_pattern) {
                     return PolicyDecision {
@@ -36,7 +36,6 @@ pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a Config) -> PolicyDecisio
         }
         SystemEvent::Process(proc_event) => {
             let exe_str = proc_event.path.to_string_lossy();
-
             for rule in &config.rules {
                 if exe_str.contains(&rule.path_pattern) {
                     return PolicyDecision {
@@ -46,12 +45,8 @@ pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a Config) -> PolicyDecisio
                 }
             }
         }
-        SystemEvent::Registry(_reg_event) => {
-            // Lógica de evaluación para claves de registro
-        }
-        SystemEvent::Net(_net_event) => {
-            // Lógica de evaluación para conexiones de red
-        }
+        SystemEvent::Registry(_reg_event) => {}
+        SystemEvent::Net(_net_event) => {}
     }
 
     PolicyDecision {

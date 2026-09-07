@@ -19,9 +19,10 @@
 */
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
+use crate::config::FormicConfig; // Importar la config de Nickel
 use crate::shared::models::{FileAction, FileEvent, SystemEvent};
 
 pub struct FileMonitor {
@@ -29,9 +30,7 @@ pub struct FileMonitor {
 }
 
 impl FileMonitor {
-    pub fn new<P: AsRef<Path>>(path: P, tx: Sender<SystemEvent>) -> Result<Self, String> {
-        let watch_path = path.as_ref().to_path_buf();
-
+    pub fn start(config: &FormicConfig, tx: Sender<SystemEvent>) -> Result<Self, String> {
         let watcher_tx = tx;
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| match res {
@@ -53,17 +52,21 @@ impl FileMonitor {
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!("[Error en FileWatcher]: {:?}", e);
-                }
+                Err(e) => eprintln!("[Error en FileWatcher]: {:?}", e),
             },
             Config::default(),
         )
         .map_err(|e| format!("Error al inicializar el watcher: {}", e))?;
 
-        watcher
-            .watch(&watch_path, RecursiveMode::Recursive)
-            .map_err(|e| format!("No se pudo monitorear '{}': {}", watch_path.display(), e))?;
+        // Iterar sobre las rutas definidas en Nickel (ej. config.fs_watch_paths)
+        for path_str in &config.fs.watch_paths {
+            let path = PathBuf::from(path_str);
+            if path.exists() {
+                watcher
+                    .watch(&path, RecursiveMode::Recursive)
+                    .map_err(|e| format!("No se pudo monitorear '{}': {}", path.display(), e))?;
+            }
+        }
 
         Ok(Self { _watcher: watcher })
     }

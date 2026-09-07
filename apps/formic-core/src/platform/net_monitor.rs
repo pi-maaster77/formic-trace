@@ -18,40 +18,51 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
+use std::collections::HashSet;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::Duration;
+use sysinfo::Networks;
 
-use crate::shared::models::{NetAction, NetEvent, SystemEvent};
+use crate::config::NetConfig;
+use crate::shared::models::{NetEvent, SystemEvent};
 
 pub struct NetMonitor;
 
 impl NetMonitor {
-    pub fn start_watch(tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+    pub fn start_watch(config: &NetConfig, tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+        let interval = config.poll_interval();
+        let monitored_ports: HashSet<u16> = config.monitored_ports.iter().copied().collect();
+
         thread::spawn(move || {
-            let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
-            let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
+            let mut networks = Networks::new_with_refreshed_list();
 
             loop {
-                if let Ok(sockets) = get_sockets_info(af_flags, proto_flags) {
-                    for socket in sockets {
-                        if let ProtocolSocketInfo::Tcp(tcp_info) = socket.protocol_socket_info {
-                            for pid in socket.associated_pids {
-                                let net_event = NetEvent {
-                                    pid,
-                                    local_addr: tcp_info.local_addr.to_string(),
-                                    remote_addr: tcp_info.remote_addr.to_string(),
-                                    remote_port: tcp_info.remote_port,
-                                    protocol: "TCP".to_string(),
-                                    action: NetAction::ConnectionEstablished,
-                                };
-                                let _ = tx.send(SystemEvent::Net(net_event));
-                            }
-                        }
+                networks.refresh();
+
+                for (_interface_name, network) in &networks {
+                    if !monitored_ports.is_empty() {
+                        // Lógica de inspección por puerto si aplica
+                    }
+
+                    let rx_bytes = network.received();
+                    let tx_bytes = network.transmitted();
+
+                    if tx_bytes > 0 || rx_bytes > 0 {
+                        let _ = tx.send(SystemEvent::Net(NetEvent {
+                            interface: _interface_name.clone(), // <- Campo faltante
+                            pid: 0,
+                            local_addr: "127.0.0.1".to_string(),
+                            remote_addr: "0.0.0.0".to_string(),
+                            remote_port: 0,
+                            protocol: "TCP".to_string(),
+                            action: "traffic".to_string(),
+                            rx_bytes,
+                            tx_bytes,
+                        }));
                     }
                 }
-                thread::sleep(Duration::from_secs(2));
+
+                thread::sleep(interval);
             }
         })
     }

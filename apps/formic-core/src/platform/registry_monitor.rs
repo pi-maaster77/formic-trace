@@ -1,4 +1,3 @@
-
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
 * File: /apps/formic-core/src/platform/registry_monitor.rs
@@ -22,29 +21,30 @@
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::Duration;
 use winreg::enums::*;
 use winreg::RegKey;
 
+use crate::config::RegistryConfig;
 use crate::shared::models::{RegAction, RegistryEvent, SystemEvent};
 
 pub struct RegistryMonitor;
 
 impl RegistryMonitor {
-    pub fn start_watch(tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+    pub fn start_watch(config: &RegistryConfig, tx: Sender<SystemEvent>) -> thread::JoinHandle<()> {
+        let raw_keys = config.keys_to_watch.clone();
+        let poll_interval = config.poll_interval();
+
         thread::spawn(move || {
-            // Mapa para mantener el estado anterior de las claves y sus valores
             let mut known_values: HashMap<String, String> = HashMap::new();
 
-            // Rutas típicas de persistencia para monitorear
-            let keys_to_watch = vec![
-                (HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
-                (HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
-            ];
-
             loop {
-                for &(hkey, path) in &keys_to_watch {
-                    let hk = RegKey::predef(hkey);
+                // Parsear la clave dentro del thread para evitar problemas con Send
+                let keys_to_watch: Vec<(RegKey, String)> = raw_keys
+                    .iter()
+                    .map(|k| parse_hkey_path(k))
+                    .collect();
+
+                for (hk, path) in &keys_to_watch {
                     if let Ok(key) = hk.open_subkey_with_flags(path, KEY_READ) {
                         for item in key.enum_values().flatten() {
                             let (val_name, val_data) = item;
@@ -53,9 +53,8 @@ impl RegistryMonitor {
 
                             match known_values.get(&full_key_id) {
                                 None => {
-                                    // Nuevo valor creado en el registro
                                     let reg_event = RegistryEvent {
-                                        key_path: path.to_string(),
+                                        key_path: path.clone(),
                                         value_name: val_name,
                                         action: RegAction::KeyCreated,
                                         pid: None,
@@ -64,9 +63,8 @@ impl RegistryMonitor {
                                     known_values.insert(full_key_id, current_value_str);
                                 }
                                 Some(old_value) if old_value != &current_value_str => {
-                                    // Valor existente modificado
                                     let reg_event = RegistryEvent {
-                                        key_path: path.to_string(),
+                                        key_path: path.clone(),
                                         value_name: val_name,
                                         action: RegAction::ValueModified,
                                         pid: None,
@@ -80,13 +78,10 @@ impl RegistryMonitor {
                     }
                 }
 
-                // Detección de valores eliminados
                 let mut deleted_keys = Vec::new();
                 for (full_key_id, _) in &known_values {
-                    // Verificar si la clave aún existe en el registro
                     let mut exists = false;
-                    for &(hkey, path) in &keys_to_watch {
-                        let hk = RegKey::predef(hkey);
+                    for (hk, path) in &keys_to_watch {
                         if let Ok(key) = hk.open_subkey_with_flags(path, KEY_READ) {
                             if let Some(val_name) = full_key_id.strip_prefix(&format!(r"{}\", path)) {
                                 if key.get_raw_value(val_name).is_ok() {
@@ -96,7 +91,6 @@ impl RegistryMonitor {
                             }
                         }
                     }
-
                     if !exists {
                         deleted_keys.push(full_key_id.clone());
                     }
@@ -113,8 +107,18 @@ impl RegistryMonitor {
                     let _ = tx.send(SystemEvent::Registry(reg_event));
                 }
 
-                thread::sleep(Duration::from_secs(3));
+                thread::sleep(poll_interval);
             }
         })
+    }
+}
+
+fn parse_hkey_path(full_path: &str) -> (RegKey, String) {
+    if full_path.starts_with("HKCU\\") || full_path.starts_with("HKEY_CURRENT_USER\\") {
+        let sub = full_path.split_once('\\').map(|x| x.1).unwrap_or("");
+        (RegKey::predef(HKEY_CURRENT_USER), sub.to_string())
+    } else {
+        let sub = full_path.split_once('\\').map(|x| x.1).unwrap_or("");
+        (RegKey::predef(HKEY_LOCAL_MACHINE), sub.to_string())
     }
 }

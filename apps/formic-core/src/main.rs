@@ -32,7 +32,8 @@ use std::sync::mpsc;
 
 use logger::{LogLevel, Logger};
 use shared::models::RuleAction;
-use crate::shared::models::{Config, SystemEvent};
+use crate::shared::models::SystemEvent;
+use config::load_config;
 
 fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
     if let Some(path_str) = configured_path {
@@ -59,49 +60,31 @@ fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
     env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn run_service() {
+fn run_service() -> Result<(), Box<dyn std::error::Error>> {
     let logger = Logger::new(Some("formic.log"));
     logger.log(LogLevel::Info, "Inicializando Formic Core Daemon...");
 
-    let config_path = Path::new("formic.json");
-    let config = match config::load_config(config_path) {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            logger.log(
-                LogLevel::Warn,
-                &format!("Configuración no cargada ({}), aplicando fallback por defecto.", err),
-            );
-            Config {
-                watch_paths: vec![resolve_watch_dir(None).to_string_lossy().to_string()],
-                default_action: RuleAction::Allow,
-                rules: vec![],
-            }
-        }
-    };
+    let config_path = Path::new("config/formic.ncl");
+    let config = load_config(config_path)?;
 
-    let first_watch_path = config.watch_paths.first().map(|s| s.as_str());
-    let watch_path = resolve_watch_dir(first_watch_path);
     logger.log(
         LogLevel::Info,
-        &format!("Monitoreando directorio: {}", watch_path.display()),
+        &format!("Configuración cargada exitosamente desde {}", config_path.display()),
     );
 
-    // Canal MPSC unificado para todos los monitores
     let (tx, rx) = mpsc::channel::<SystemEvent>();
 
-    let _fs_monitor = platform::fs_monitor::FileMonitor::new(&watch_path, tx.clone());
-    let _proc_monitor = platform::process_monitor::ProcessMonitor::start(tx.clone());
-    let _reg_monitor = platform::registry_monitor::RegistryMonitor::start_watch(tx.clone());
-    let _net_monitor = platform::net_monitor::NetMonitor::start_watch(tx.clone());
+    let _fs_monitor = platform::fs_monitor::FileMonitor::start(&config, tx.clone());
+    let _proc_monitor = platform::process_monitor::ProcessMonitor::start(&config.process, tx.clone());
+    let _reg_monitor = platform::registry_monitor::RegistryMonitor::start_watch(&config.registry, tx.clone());
+    let _net_monitor = platform::net_monitor::NetMonitor::start_watch(&config.net, tx.clone());
 
     logger.log(LogLevel::Info, "Servicio de monitoreo iniciado. Escuchando eventos...");
 
-    // Único bucle de procesamiento de eventos en la cola
     for event in rx {
         let decision = engine::evaluator::evaluate(&event, &config);
         let rule_name = decision.matched_rule.unwrap_or("DefaultPolicy");
 
-        // Formateo descriptivo según la variante recibida
         let event_info = match &event {
             SystemEvent::File(e) => format!("FS: {:?} | Acción: {:?}", e.path, e.action),
             SystemEvent::Process(e) => format!("PROC: {:?} (PID: {})", e.path, e.pid),
@@ -111,27 +94,20 @@ fn run_service() {
 
         match decision.action {
             RuleAction::Allow => {
-                logger.log(
-                    LogLevel::Info,
-                    &format!("[ALLOW] {}", event_info),
-                );
+                logger.log(LogLevel::Info, &format!("[ALLOW] {}", event_info));
             }
             RuleAction::Warn => {
-                logger.log(
-                    LogLevel::Warn,
-                    &format!("[WARN] {}", event_info),
-                );
+                logger.log(LogLevel::Warn, &format!("[WARN] {}", event_info));
                 notifier::notify_event(&event, rule_name, &decision.action);
             }
             RuleAction::Block => {
-                logger.log(
-                    LogLevel::Error,
-                    &format!("[BLOCK] {}", event_info),
-                );
+                logger.log(LogLevel::Error, &format!("[BLOCK] {}", event_info));
                 notifier::notify_event(&event, rule_name, &decision.action);
             }
         }
     }
+
+    Ok(())
 }
 
 fn print_usage() {
@@ -143,9 +119,12 @@ fn print_usage() {
 
 fn main() {
     let mode = env::args().nth(1);
-
     match mode.as_deref() {
-        Some("--service") => run_service(),
+        Some("--service") => {
+            if let Err(e) = run_service() {
+                eprintln!("Error ejecutando el servicio: {}", e);
+            }
+        }
         Some("--cli") => {
             let args: Vec<String> = env::args().collect();
             cli::run(&args);
