@@ -7,6 +7,7 @@ edition = "2024"
 # Librería compartida del espacio de trabajo
 formic-common = { path = "../../libs/formic-common" }
 
+nickel-lang-core = "0.18"
 # Monitoreo de archivos en Safe Rust (reemplaza a windows-sys)
 notify = "6.1"
 sysinfo = "0.30"
@@ -16,6 +17,7 @@ netstat2 = "0.9"
 # Serialización y deserialización de datos / reglas (formic.json)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = ["Win32_System_Registry"] }

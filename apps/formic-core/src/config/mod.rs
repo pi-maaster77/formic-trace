@@ -1,6 +1,6 @@
 /*
 * Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/engine/config/mod.rs
+* File: /apps/formic-core/src/config/mod.rs
 * 
 * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
 * 
@@ -19,8 +19,16 @@
 */
 
 use serde::Deserialize;
+use std::fs::File;
+use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
+
+use nickel_lang_core::{
+    eval::cache::lazy::CBNCache,
+    program::ProgramBuilder,
+    serialize::{self, ExportFormat},
+};
 
 use crate::shared::models::RuleAction;
 
@@ -97,10 +105,25 @@ pub struct FormicConfig {
 }
 
 pub fn load_config<P: AsRef<Path>>(path: P) -> Result<FormicConfig, String> {
-    let json_str = eval_nickel_to_json(path.as_ref())?;
-    serde_json::from_str(&json_str).map_err(|e| e.to_string())
-}
+    let path_ref = path.as_ref();
 
-fn eval_nickel_to_json(_path: &Path) -> Result<String, String> {
-    todo!()
+    let file = File::open(path_ref)
+        .map_err(|e| format!("Error al abrir archivo '{:?}': {}", path_ref, e))?;
+
+    // Especificamos explícitamente CBNCache al llamar a .build()
+    let mut program = ProgramBuilder::new()
+        .add_source(file, path_ref.as_os_str().to_os_string())
+        .build::<CBNCache>()
+        .map_err(|e| format!("Error al construir programa Nickel: {:?}", e))?;
+
+    let evaluated = program
+        .eval_full_for_export()
+        .map_err(|e| format!("Error evaluando script Nickel '{:?}': {:?}", path_ref, e))?;
+
+    let mut buffer = Vec::new();
+    serialize::to_writer(&mut buffer, ExportFormat::Json, &evaluated)
+        .map_err(|e| format!("Error serializando resultado Nickel a JSON: {:?}", e))?;
+
+    serde_json::from_reader(Cursor::new(buffer))
+        .map_err(|e| format!("Error deserializando JSON a FormicConfig: {}", e))
 }

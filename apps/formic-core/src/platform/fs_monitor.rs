@@ -19,7 +19,7 @@
 */
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::sync::mpsc::Sender;
 
 use crate::config::FormicConfig; // Importar la config de Nickel
@@ -71,3 +71,4 @@ impl FileMonitor {
         Ok(Self { _watcher: watcher })
     }
 }
+
