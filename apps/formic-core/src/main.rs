@@ -36,6 +36,63 @@ use platform::crypto::SignatureStatus;
 use shared::models::RuleAction;
 use crate::shared::models::SystemEvent;
 
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID};
+#[cfg(target_os = "windows")]
+use windows::Win32::Security::{
+    AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, TOKEN_ADJUST_PRIVILEGES,
+    TOKEN_PRIVILEGES, SE_PRIVILEGE_ENABLED, TOKEN_QUERY,
+};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+#[cfg(target_os = "windows")]
+fn enable_debug_privilege() -> bool {
+    unsafe {
+        let mut token_handle = HANDLE::default();
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut token_handle,
+        ).is_err() {
+            return false;
+        }
+
+        let mut luid = LUID::default();
+        let privilege_name: Vec<u16> = "SeDebugPrivilege".encode_utf16().chain(std::iter::once(0)).collect();
+
+        if LookupPrivilegeValueW(None, windows::core::PCWSTR(privilege_name.as_ptr()), &mut luid).is_err() {
+            let _ = CloseHandle(token_handle);
+            return false;
+        }
+
+        let mut tp = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+
+        let res = AdjustTokenPrivileges(
+            token_handle,
+            false,
+            Some(&mut tp),
+            std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
+            None,
+            None,
+        );
+
+        let _ = CloseHandle(token_handle);
+        res.is_ok()
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn enable_debug_privilege() -> bool {
+    true
+}
+
 fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
     if let Some(path_str) = configured_path {
         let p = PathBuf::from(path_str);
@@ -65,6 +122,15 @@ fn run_service() -> Result<(), Box<dyn std::error::Error>> {
     let logger = Logger::new(Some("formic.log"));
     logger.log(LogLevel::Info, "Inicializando Formic Core Daemon...");
 
+    if enable_debug_privilege() {
+        logger.log(LogLevel::Info, "Privilegio SeDebugPrivilege adquirido correctamente.");
+    } else {
+        logger.log(
+            LogLevel::Warn,
+            "No se pudo adquirir SeDebugPrivilege. Es posible que algunos procesos no puedan inspeccionarse.",
+        );
+    }
+
     let config_path = Path::new("config/formic.ncl");
     let config = load_config(config_path)?;
 
@@ -89,6 +155,7 @@ fn run_service() -> Result<(), Box<dyn std::error::Error>> {
                 let status = platform::crypto::verify_binary(&e.path);
                 let status_str = match status {
                     SignatureStatus::Valid => "VALID_SIGNATURE".to_string(),
+                    SignatureStatus::SystemProtected => "SYSTEM_PROTECTED".to_string(),
                     SignatureStatus::Unsigned => "UNSIGNED".to_string(),
                     SignatureStatus::Untrusted => "UNTRUSTED_ROOT".to_string(),
                     SignatureStatus::Revoked => "REVOKED".to_string(),
