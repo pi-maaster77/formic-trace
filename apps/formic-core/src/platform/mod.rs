@@ -22,3 +22,4 @@ pub mod fs_monitor;
 pub mod net_monitor;
 pub mod process_monitor;
 pub mod registry_monitor;
+pub mod crypto;

@@ -1,22 +1,22 @@
 /*
-* Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/config/mod.rs
-* 
-* Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
-* 
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-* 
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-* 
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <https://www.gnu.org/licenses/>.
-*/
+ * Formic Trace - Declarative Application Whitelisting for Windows
+ * File: /apps/formic-core/src/config/mod.rs
+ * 
+ * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
 
 use serde::Deserialize;
 use std::fs::File;
@@ -35,7 +35,9 @@ use crate::shared::models::RuleAction;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Rule {
     pub name: String,
-    pub path_pattern: String,
+    pub path_pattern: Option<String>,
+    pub sha256: Option<String>,
+    pub publisher: Option<String>,
     pub action: RuleAction,
 }
 
@@ -110,7 +112,6 @@ pub fn load_config<P: AsRef<Path>>(path: P) -> Result<FormicConfig, String> {
     let file = File::open(path_ref)
         .map_err(|e| format!("Error al abrir archivo '{:?}': {}", path_ref, e))?;
 
-    // Especificamos explícitamente CBNCache al llamar a .build()
     let mut program = ProgramBuilder::new()
         .add_source(file, path_ref.as_os_str().to_os_string())
         .build::<CBNCache>()

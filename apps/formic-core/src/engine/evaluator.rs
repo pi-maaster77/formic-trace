@@ -26,22 +26,26 @@ pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a FormicConfig) -> PolicyD
         SystemEvent::File(file_event) => {
             let path_str = file_event.path.to_string_lossy();
             for rule in &config.rules {
-                if path_str.contains(&rule.path_pattern) {
-                    return PolicyDecision {
-                        action: rule.action.clone(),
-                        matched_rule: Some(&rule.name),
-                    };
+                if let Some(pattern) = &rule.path_pattern {
+                    if path_str.contains(pattern) {
+                        return PolicyDecision {
+                            action: rule.action.clone(),
+                            matched_rule: Some(&rule.name),
+                        };
+                    }
                 }
             }
         }
         SystemEvent::Process(proc_event) => {
             let exe_str = proc_event.path.to_string_lossy();
             for rule in &config.rules {
-                if exe_str.contains(&rule.path_pattern) {
-                    return PolicyDecision {
-                        action: rule.action.clone(),
-                        matched_rule: Some(&rule.name),
-                    };
+                if let Some(pattern) = &rule.path_pattern {
+                    if exe_str.contains(pattern) {
+                        return PolicyDecision {
+                            action: rule.action.clone(),
+                            matched_rule: Some(&rule.name),
+                        };
+                    }
                 }
             }
         }

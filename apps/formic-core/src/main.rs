@@ -1,22 +1,22 @@
 /*
-* Formic Trace - Declarative Application Whitelisting for Windows
-* File: /apps/formic-core/src/main.rs
-* 
-* Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
-* 
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-* 
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-* 
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <https://www.gnu.org/licenses/>.
-*/
+ * Formic Trace - Declarative Application Whitelisting for Windows
+ * File: /apps/formic-core/src/main.rs
+ * 
+ * Copyright (C) 2026 pi-maaster77 and Formic Trace Contributors
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
 
 mod cli;
 mod config;
@@ -30,10 +30,11 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
+use config::load_config;
 use logger::{LogLevel, Logger};
+use platform::crypto::SignatureStatus;
 use shared::models::RuleAction;
 use crate::shared::models::SystemEvent;
-use config::load_config;
 
 fn resolve_watch_dir(configured_path: Option<&str>) -> PathBuf {
     if let Some(path_str) = configured_path {
@@ -82,15 +83,26 @@ fn run_service() -> Result<(), Box<dyn std::error::Error>> {
     logger.log(LogLevel::Info, "Servicio de monitoreo iniciado. Escuchando eventos...");
 
     for event in rx {
-        let decision = engine::evaluator::evaluate(&event, &config);
-        let rule_name = decision.matched_rule.unwrap_or("DefaultPolicy");
-
         let event_info = match &event {
             SystemEvent::File(e) => format!("FS: {:?} | Acción: {:?}", e.path, e.action),
-            SystemEvent::Process(e) => format!("PROC: {:?} (PID: {})", e.path, e.pid),
+            SystemEvent::Process(e) => {
+                let status = platform::crypto::verify_binary(&e.path);
+                let status_str = match status {
+                    SignatureStatus::Valid => "VALID_SIGNATURE".to_string(),
+                    SignatureStatus::Unsigned => "UNSIGNED".to_string(),
+                    SignatureStatus::Untrusted => "UNTRUSTED_ROOT".to_string(),
+                    SignatureStatus::Revoked => "REVOKED".to_string(),
+                    SignatureStatus::UnknownFailure(code) => format!("FAIL_CODE_{}", code),
+                };
+
+                format!("PROC: {:?} (PID: {}) | Status: {}", e.path, e.pid, status_str)
+            }
             SystemEvent::Registry(e) => format!("REG: {:?}", e.key_path),
             SystemEvent::Net(e) => format!("NET: {}:{}", e.remote_addr, e.remote_port),
         };
+
+        let decision = engine::evaluator::evaluate(&event, &config);
+        let rule_name = decision.matched_rule.unwrap_or("DefaultPolicy");
 
         match decision.action {
             RuleAction::Allow => {

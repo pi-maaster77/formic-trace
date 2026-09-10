@@ -119,3 +119,18 @@ pub enum SystemEvent {
     Net(NetEvent),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SignatureStatus {
+    SignedValid,
+    Unsigned,
+    Untrusted,
+    Revoked,
+}
+
+#[derive(Debug, Clone)]
+pub struct BinarySignatureInfo {
+    pub sha256: String,
+    pub status: SignatureStatus,
+    pub publisher: Option<String>,
+}
+
