@@ -32,7 +32,7 @@ let RuleAction = {
     monitor = true,
     watch_paths = [
       "C:\\Windows\\System32",
-      "C:\\Program Files",
+      "C:\\Users\\Public\\Downloads",
     ],
   },
 
@@ -49,7 +49,7 @@ let RuleAction = {
   },
 
   registry = {
-    monitor = false,
+    monitor = true,
     poll_interval_ms = 2000,
     keys_to_watch = [
       "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -59,10 +59,25 @@ let RuleAction = {
   default_action = RuleAction.Block,
 
   rules = [
+    # 1. Permitir binarios firmados del sistema en System32
     {
-      name = "Auditar ejecuciones en Temp",
-      path_pattern = "C:\\Users\\*\\AppData\\Local\\Temp\\*.exe",
-      action = RuleAction.Warn, # Usa Warn en vez de Audit
+      name = "Permitir_System32",
+      path_pattern = "C:\\Windows\\System32\\*.exe",
+      action = RuleAction.Allow,
+    },
+
+    # 2. Advertir si se ejecuta algo desde Temp (típico de installers/payloads)
+    {
+      name = "Advertir_Temp_Executables",
+      path_pattern = "AppData\\Local\\Temp",
+      action = RuleAction.Warn,
+    },
+
+    # 3. Bloquear ejecutables corriendo desde Downloads públicas
+    {
+      name = "Bloquear_Public_Downloads",
+      path_pattern = "C:\\Users\\Public\\Downloads\\*.exe",
+      action = RuleAction.Block,
     },
   ],
 }
