@@ -88,6 +88,7 @@ pub struct ProcessEvent {
     pub path: PathBuf,
     pub command_line: String,
     pub action: ProcessAction,
+    pub signature_status: SignatureStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +126,7 @@ pub enum SignatureStatus {
     Unsigned,
     Untrusted,
     Revoked,
+    SystemProtected,
 }
 
 #[derive(Debug, Clone)]

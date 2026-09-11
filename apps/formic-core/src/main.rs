@@ -32,7 +32,6 @@ use std::sync::mpsc;
 
 use config::load_config;
 use logger::{LogLevel, Logger};
-use platform::crypto::SignatureStatus;
 use shared::models::RuleAction;
 use crate::shared::models::SystemEvent;
 
@@ -152,14 +151,13 @@ fn run_service() -> Result<(), Box<dyn std::error::Error>> {
         let event_info = match &event {
             SystemEvent::File(e) => format!("FS: {:?} | Acción: {:?}", e.path, e.action),
             SystemEvent::Process(e) => {
-                let status = platform::crypto::verify_binary(&e.path);
-                let status_str = match status {
-                    SignatureStatus::Valid => "VALID_SIGNATURE".to_string(),
-                    SignatureStatus::SystemProtected => "SYSTEM_PROTECTED".to_string(),
-                    SignatureStatus::Unsigned => "UNSIGNED".to_string(),
-                    SignatureStatus::Untrusted => "UNTRUSTED_ROOT".to_string(),
-                    SignatureStatus::Revoked => "REVOKED".to_string(),
-                    SignatureStatus::UnknownFailure(code) => format!("FAIL_CODE_{}", code),
+                // Usar la firma ya calculada y adjunta en el evento
+                let status_str = match e.signature_status {
+                    crate::shared::models::SignatureStatus::SignedValid => "VALID_SIGNATURE".to_string(),
+                    crate::shared::models::SignatureStatus::SystemProtected => "SYSTEM_PROTECTED".to_string(),
+                    crate::shared::models::SignatureStatus::Unsigned => "UNSIGNED".to_string(),
+                    crate::shared::models::SignatureStatus::Untrusted => "UNTRUSTED_ROOT".to_string(),
+                    crate::shared::models::SignatureStatus::Revoked => "REVOKED".to_string(),
                 };
 
                 format!("PROC: {:?} (PID: {}) | Status: {}", e.path, e.pid, status_str)

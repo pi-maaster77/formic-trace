@@ -32,12 +32,29 @@ use nickel_lang_core::{
 
 use crate::shared::models::RuleAction;
 
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub enum SignatureStatusRequirement {
+    Signed,
+    Unsigned,
+    UntrustedRoot,
+    Expired,
+    Any,
+}
+
+impl Default for SignatureStatusRequirement {
+    fn default() -> Self {
+        Self::Any
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Rule {
     pub name: String,
     pub path_pattern: Option<String>,
     pub sha256: Option<String>,
     pub publisher: Option<String>,
+    #[serde(default, rename = "signature")]
+    pub signature_status: SignatureStatusRequirement,
     pub action: RuleAction,
 }
 
@@ -69,6 +86,8 @@ pub struct ProcessConfig {
     #[serde(default = "default_poll_interval_ms")]
     pub poll_interval_ms: u64,
     pub track_cmdline: bool,
+    #[serde(default)]
+    pub alert_on_unsigned_only: bool,
 }
 
 impl ProcessConfig {

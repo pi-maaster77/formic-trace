@@ -17,17 +17,15 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
-
-use crate::config::FormicConfig;
-use crate::shared::models::{PolicyDecision, SystemEvent};
+ 
+use crate::config::{FormicConfig, Rule, SignatureStatusRequirement};
+use crate::shared::models::{PolicyDecision, SignatureStatus, SystemEvent};
+use glob_match::glob_match;
 use std::path::Path;
 
-/// Normaliza una ruta convirtiéndola a minúsculas, uniformando separadores
-/// y mapeando rutas de dispositivo NT (\Device\HarddiskVolumeX) a letras de unidad (C:\).
 fn normalize_path(path: &Path) -> String {
     let raw = path.to_string_lossy().replace('/', "\\").to_lowercase();
 
-    // Mapeo básico de prefijos de volumen NT a letra de unidad C: si aplica
     if raw.starts_with(r"\device\harddiskvolume") {
         if let Some(idx) = raw[21..].find('\\') {
             let rest = &raw[21 + idx..];
@@ -38,33 +36,82 @@ fn normalize_path(path: &Path) -> String {
     raw
 }
 
+fn matches_signature(req: &SignatureStatusRequirement, status: &SignatureStatus) -> bool {
+    match req {
+        SignatureStatusRequirement::Any => true,
+        SignatureStatusRequirement::Signed => matches!(status, SignatureStatus::SignedValid),
+        SignatureStatusRequirement::Unsigned => matches!(
+            status,
+            SignatureStatus::Unsigned | SignatureStatus::Untrusted | SignatureStatus::Revoked
+        ),
+        SignatureStatusRequirement::UntrustedRoot => matches!(status, SignatureStatus::Untrusted),
+        SignatureStatusRequirement::Expired => matches!(status, SignatureStatus::Revoked),
+    }
+}
+
+fn matches_path_pattern(path: &str, pattern: Option<&str>) -> bool {
+    let Some(pattern) = pattern else {
+        return true;
+    };
+
+    let normalized_pattern = pattern.replace('/', "\\").to_lowercase();
+
+    if normalized_pattern == "*" || normalized_pattern.is_empty() {
+        return true;
+    }
+
+    if normalized_pattern.contains('*') || normalized_pattern.contains('?') {
+        glob_match(&normalized_pattern, path)
+    } else {
+        path.contains(&normalized_pattern)
+    }
+}
+
+fn matches_rule(rule: &Rule, path: &str, sig_status: Option<&SignatureStatus>) -> bool {
+    // 1. Validar patrón de ruta
+    if !matches_path_pattern(path, rule.path_pattern.as_deref()) {
+        return false;
+    }
+
+    // 2. Validar firma digital
+    if let Some(status) = sig_status {
+        // Si el estado es firma válida y la regla busca firmas dudosas o sin firmar, DESCARTAR
+        if *status == SignatureStatus::SignedValid
+            && rule.signature_status != SignatureStatusRequirement::Signed
+            && rule.signature_status != SignatureStatusRequirement::Any
+        {
+            return false;
+        }
+
+        if !matches_signature(&rule.signature_status, status) {
+            return false;
+        }
+    }
+
+    true
+}
+
 pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a FormicConfig) -> PolicyDecision<'a> {
     match event {
         SystemEvent::File(file_event) => {
             let normalized_path = normalize_path(&file_event.path);
             for rule in &config.rules {
-                if let Some(pattern) = &rule.path_pattern {
-                    let normalized_pattern = pattern.replace('/', "\\").to_lowercase();
-                    if normalized_path.contains(&normalized_pattern) {
-                        return PolicyDecision {
-                            action: rule.action.clone(),
-                            matched_rule: Some(&rule.name),
-                        };
-                    }
+                if matches_rule(rule, &normalized_path, None) {
+                    return PolicyDecision {
+                        action: rule.action.clone(),
+                        matched_rule: Some(&rule.name),
+                    };
                 }
             }
         }
         SystemEvent::Process(proc_event) => {
             let normalized_exe = normalize_path(&proc_event.path);
             for rule in &config.rules {
-                if let Some(pattern) = &rule.path_pattern {
-                    let normalized_pattern = pattern.replace('/', "\\").to_lowercase();
-                    if normalized_path_matches(&normalized_exe, &normalized_pattern) {
-                        return PolicyDecision {
-                            action: rule.action.clone(),
-                            matched_rule: Some(&rule.name),
-                        };
-                    }
+                if matches_rule(rule, &normalized_exe, Some(&proc_event.signature_status)) {
+                    return PolicyDecision {
+                        action: rule.action.clone(),
+                        matched_rule: Some(&rule.name),
+                    };
                 }
             }
         }
@@ -76,11 +123,4 @@ pub fn evaluate<'a>(event: &'a SystemEvent, config: &'a FormicConfig) -> PolicyD
         action: config.default_action.clone(),
         matched_rule: None,
     }
-}
-
-fn normalized_path_matches(exe_path: &str, pattern: &str) -> bool {
-    if exe_path.is_empty() {
-        return false;
-    }
-    exe_path.contains(pattern)
 }
