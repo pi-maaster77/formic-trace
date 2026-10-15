@@ -42,7 +42,7 @@
             "language": "rust",
             "template": [
                 "File: <<filename>>",
-                "Path: <<filerelativepath>>",
+                "Path: <<filepath>>",
                 "Project: <<projectname>>",
                 "Author: <<author>>",
                 "Created Date: <<filecreated('dd/MM/yyyy HH:mm:ss')>>",
