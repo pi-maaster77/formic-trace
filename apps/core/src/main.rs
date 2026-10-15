@@ -19,8 +19,7 @@ mod logger;
 mod domain;
 mod engine;
 mod cli;
-
-use std::path::PathBuf;
+mod config;
 
 use clap::Parser;
 use domain::inspectors::certs::CertsInspector;
@@ -32,11 +31,18 @@ fn main() {
     // El main solo crea la instancia; el componente se encarga de todo lo demás
     let args = Cli::parse();
     if args.calibrate {
-        let baseline_path = PathBuf::from("baseline.toml");
-        let inspectors_calibrator = InspectorsCalibrator::new(baseline_path);
-        inspectors_calibrator.run_calibration();
+        let inspectors_calibrator = InspectorsCalibrator::new(args.baseline_output);
+        if let Err(error) = inspectors_calibrator.run_calibration() {
+            eprintln!("Falló la calibración de certificados: {error:#}");
+        }
         return; 
     }
-    let certs_inspector = CertsInspector::new("certs");
-    certs_inspector.execute();
+    let certificate_config = config::inspectors::load_certificate_config(
+        &args.inspectors_config,
+        &args.nickel_binary,
+    );
+    let certs_inspector = CertsInspector::new("certs", certificate_config);
+    if let Err(error) = certs_inspector.execute() {
+        eprintln!("Falló el inspector de certificados: {error:#}");
+    }
 }

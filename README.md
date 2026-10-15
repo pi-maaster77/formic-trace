@@ -28,13 +28,6 @@
 
 ```
 
-1. **Unidad Ejecutable Multillamada (`formic.exe`):** Un único binario compilado en Rust desde Linux (cross-compilation con MinGW) que asume roles de servicio `SYSTEM`, GUI o cliente CLI según la invocación.
-2. **Core en Rust (Las Manos):** Un servicio de fondo permanente que interactúa con la API nativa de Windows (`WinVerifyTrust`, `ReadDirectoryChangesW`, ETW), garantizando seguridad de memoria, rendimiento tipo C++ y cero colapsos.
-3. **Control Total en Nickel (El Cerebro):** Un motor de reglas dinámicas que recibe datos de Rust y extiende el control del sistema. Permite gestionar servicios, claves del Registro, firewall o políticas mediante scripts sencillos.
-4. **Interfaz Dual para el Usuario:**
-* **Vista "Estilo Access":** Una grilla visual ultra intuitiva con interruptores para activar/desactivar programas o conjuntos de reglas sin escribir código.
-* **Vista de Código:** Editor integrado con resaltado de sintaxis para personalizar directamente el `formic.json` o las funciones en Nickel.
-
 
 ---
 
@@ -47,6 +40,18 @@ como NT no fue diseñado para esto, se intentara acercarce lo mas posible a esta
 **En resumen:** Formic combina la rigidez determinista de la infraestructura moderna (tipo Nix o Kubernetes) con la simplicidad de un panel visual e interactivo, convirtiendo los mecanismos nativos de Windows en un escudo de seguridad inexpugnable.
 
 ---
+
+## Inspector de certificados raíz
+
+`formic-core` evalúa la política con el ejecutable Nickel. Instálalo en una ubicación protegida y pásalo con `--nickel-binary` en servicios; el valor `nickel` usa el `PATH` y se recomienda solo para desarrollo. La ruta de configuración predeterminada es `config/default.ncl`.
+
+El archivo global `config/default.ncl` importa las configuraciones Nickel por inspector desde `config/inspectors/<inspector>/`; las políticas viven en `config/policies/<politica>/`. Las carpetas de hardware, identidad y características del sistema agregan sus subcarpetas mediante su propio `default.ncl`. La configuración de certificados está en `config/inspectors/certs/default.ncl`.
+
+El preset inicial es `alert_only` y no borra certificados. Para capturar la línea base ejecuta `formic-core --calibrate`; se guarda como SHA-256 en `config/inspectors/certs/baseline.toml` sin modificar el almacén. `minimal` consume esa lista. Cualquier modo que elimine certificados requiere `allow_destructive = true`; revisa la política antes de habilitarlo. `purge_all` elimina todo el almacén `LocalMachine\\Root`.
+
+Para importar una CA de terceros, coloca un archivo `.cer`, `.crt` o `.pem` (un certificado por archivo) en `config/inspectors/certs/third_party/` y enumera su ruta relativa en `import_certificates`. Requiere `allow_import = true`, un modo distinto de `alert_only` y `allow_destructive = true`. La política activa también debe permitir la huella: inclúyela en `baseline_sha256` para `minimal` o en `allow_sha256` para `whitelist`. Se importan solo certificados CA vigentes; la operación es idempotente y requiere permisos de escritura para `LocalMachine\\Root`. Verifica las huellas por un canal independiente antes de confiar en un certificado.
+
+Si Nickel no está disponible o la configuración no valida, el inspector registra el error y usa el modo de emergencia `alert_only`.
 
 ## Licencia
 

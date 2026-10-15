@@ -25,6 +25,14 @@ pub struct Cli {
     pub calibrate: bool,
 
     /// Ruta personalizada opcional para guardar la línea base generada
-    #[arg(long, value_name = "FILE", default_value = "config/baseline.toml")]
+    #[arg(long, value_name = "FILE", default_value = "config/inspectors/certs/baseline.toml")]
     pub baseline_output: PathBuf,
+
+    /// Configuración Nickel para la política de certificados raíz
+    #[arg(long, value_name = "FILE", default_value = "config/default.ncl")]
+    pub inspectors_config: PathBuf,
+
+    /// Ejecutable Nickel (en producción, usar una ruta absoluta protegida)
+    #[arg(long, value_name = "PATH", default_value = "nickel")]
+    pub nickel_binary: PathBuf,
 }
