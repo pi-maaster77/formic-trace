@@ -14,12 +14,21 @@
  */
 
 
+/*
+
+Este archivo implementa el inspector activo de certificados de Formic operando en un modo de "Cero-Confianza Absoluto" (Zero-Trust). Su propósito principal es actuar como un centinela o guardia de seguridad en tiempo de ejecución:
+
+    Sondeo Continuo (Polling): Ejecuta un bucle infinito que abre el almacén raíz local (LocalMachine\Root) cada 2 segundos para verificar si el estado del sistema ha sido alterado.
+
+    Vigilancia de Integridad: Monitorea la cantidad de certificados en el almacén mediante store.certs().count().
+
+    Respuesta Inmediata (Kill-Switch / Purga Activa): Si detecta que count > 0 (es decir, si cualquier aplicación, usuario o malware intenta inyectar o restaurar certificados raíz no autorizados), invoca inmediatamente la función purge_certificates() para borrarlos de golpe utilizando un comando lanzado por debajo (vía PowerShell).*/
+
 use crate::logger::{self, ComponentLoggerGuard};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use schannel::cert_store::CertStore;
 use std::thread;
 use std::time::Duration;
-use std::process::{Command, Stdio};
 
 pub struct CertsInspector {
     component_name: String,
@@ -46,12 +55,7 @@ impl CertsInspector {
         loop {
             match CertStore::open_local_machine("Root") {
                 Ok(store) => {
-                    let count = store.certs().count();
-
-                    if count > 0 {
-                        // Limpieza inmediata si se detecta cualquier intruso
-                        self.purge_certificates();
-                    }
+                    self.purge_certificates(&store);
                 }
                 Err(e) => {
                     error!(
@@ -67,12 +71,34 @@ impl CertsInspector {
         }
     }
 
-    /// Ejecución optimizada y directa para minimizar latencia
-fn purge_certificates(&self) {
-    let _ = Command::new("cmd")
-        .args(&["/C", "powershell -Command \"Get-ChildItem Cert:\\LocalMachine\\Root | Remove-Item -Force -ErrorAction SilentlyContinue\""])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-}
+    fn purge_certificates(&self, store: &CertStore) {
+        let certificates = store.certs().collect::<Vec<_>>();
+        if certificates.is_empty() {
+            return;
+        }
+
+        let mut deleted_count = 0;
+        let mut delete_failed_count = 0;
+
+        for certificate in certificates {
+            match certificate.delete() {
+                Ok(_) => deleted_count += 1,
+                Err(error) => {
+                    delete_failed_count += 1;
+                    warn!(
+                        component = %self.component_name,
+                        error = %error,
+                        "No se pudo eliminar un certificado raíz."
+                    );
+                }
+            }
+        }
+
+        info!(
+            component = %self.component_name,
+            deleted = deleted_count,
+            delete_failed = delete_failed_count,
+            "Intento de purga de certificados raíz completado."
+        );
+    }
 }
