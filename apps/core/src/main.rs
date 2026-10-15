@@ -4,7 +4,7 @@
  * Project: src                                                                *
  * Author: pi-maaster77                                                        *
  * Created Date: Sa/10/2026 11:06:27                                           *
- * Last Modified: Wed Oct 14 2026                                              *
+ * Last Modified: Thu Oct 15 2026                                              *
  *                                                                             *
  * License: GNU General Public License v3.0 (GPLv3)                            *
  * This program is free software: you can redistribute it and/or modify        *
@@ -17,11 +17,26 @@
 
 mod logger;
 mod domain;
+mod engine;
+mod cli;
 
+use std::path::PathBuf;
+
+use clap::Parser;
 use domain::inspectors::certs::CertsInspector;
+use engine::calibrate::inspectors::InspectorsCalibrator;
+use cli::Cli;
+
 
 fn main() {
     // El main solo crea la instancia; el componente se encarga de todo lo demás
+    let args = Cli::parse();
+    if args.calibrate {
+        let baseline_path = PathBuf::from("baseline.toml");
+        let inspectors_calibrator = InspectorsCalibrator::new(baseline_path);
+        inspectors_calibrator.run_calibration();
+        return; 
+    }
     let certs_inspector = CertsInspector::new("certs");
     certs_inspector.execute();
 }

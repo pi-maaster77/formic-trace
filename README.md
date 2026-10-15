@@ -36,6 +36,11 @@
 * **Vista de Código:** Editor integrado con resaltado de sintaxis para personalizar directamente el `formic.json` o las funciones en Nickel.
 
 
+---
+
+### Filosofia
+La idea seria intentar traer todo lo posible la filosofia unix (el usuario tiene la ultima palabra, incluso si se quiere pegar un tiro en el pie) a un entorno de windows
+como NT no fue diseñado para esto, se intentara acercarce lo mas posible a esta filosofia. 
 
 ---
 

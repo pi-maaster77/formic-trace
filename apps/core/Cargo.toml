@@ -10,3 +10,5 @@ tracing-appender = "0.2"
 anyhow = "1.0"
 chrono = "0.4"
 schannel = "0.1"
+clap = { version = "4.0", features = ["derive"] }
+sha2 = "0.11"
