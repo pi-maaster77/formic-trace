@@ -37,10 +37,8 @@ fn main() {
         }
         return; 
     }
-    let certificate_config = config::inspectors::load_certificate_config(
-        &args.inspectors_config,
-        &args.nickel_binary,
-    );
+    let certificate_config =
+        config::inspectors::load_certificate_config(&args.inspectors_config);
     let certs_inspector = CertsInspector::new("certs", certificate_config);
     if let Err(error) = certs_inspector.execute() {
         eprintln!("Falló el inspector de certificados: {error:#}");

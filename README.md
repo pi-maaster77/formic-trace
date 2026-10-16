@@ -43,7 +43,7 @@ como NT no fue diseñado para esto, se intentara acercarce lo mas posible a esta
 
 ## Inspector de certificados raíz
 
-`formic-core` evalúa la política con el ejecutable Nickel. Instálalo en una ubicación protegida y pásalo con `--nickel-binary` en servicios; el valor `nickel` usa el `PATH` y se recomienda solo para desarrollo. La ruta de configuración predeterminada es `config/default.ncl`.
+`formic-core` evalúa Nickel en proceso mediante la librería `nickel-lang`; no requiere instalar ni localizar un ejecutable `nickel`. La ruta de configuración predeterminada es `config/default.ncl`.
 
 El archivo global `config/default.ncl` importa las configuraciones Nickel por inspector desde `config/inspectors/<inspector>/`; las políticas viven en `config/policies/<politica>/`. Las carpetas de hardware, identidad y características del sistema agregan sus subcarpetas mediante su propio `default.ncl`. La configuración de certificados está en `config/inspectors/certs/default.ncl`.
 
@@ -51,7 +51,20 @@ El preset inicial es `alert_only` y no borra certificados. Para capturar la lín
 
 En modo `whitelist`, se conserva un certificado si coincide su propia huella en `allow_sha256` **o** la huella SHA-256 de su nombre issuer DER en `allow_issuer_name_sha256`. Los denies (`deny_sha256` y `deny_issuer_name_sha256`) tienen prioridad sobre ambas listas. El hash issuer representa el nombre X.501 exacto, no el certificado emisor.
 
-Para importar una CA de terceros, coloca un archivo `.cer`, `.crt` o `.pem` (un certificado por archivo) en `config/inspectors/certs/third_party/` y enumera su ruta relativa en `import_certificates`. Requiere `allow_import = true`, un modo distinto de `alert_only` y `allow_destructive = true`. La política activa también debe permitir la huella: inclúyela en `baseline_sha256` para `minimal`, en `allow_sha256` o en `allow_issuer_name_sha256` para `whitelist`. Se importan solo certificados CA vigentes; la operación es idempotente y requiere permisos de escritura para `LocalMachine\\Root`. Verifica las huellas por un canal independiente antes de confiar en un certificado.
+Para importar un certificado, coloca un archivo `.cer`, `.crt` o `.pem` (un certificado por archivo) en `config/inspectors/certs/third_party/` y enumera su ruta relativa como string en `import_certificates`. La importación está desactivada por defecto. Para la operación explícita configura:
+
+```nickel
+mode = 'alert_only,
+allow_import = true,
+allow_destructive = true,
+import_certificates = ["third_party/test_malicious.cer"],
+```
+
+Esto también funciona con `mode = 'alert_only`: ese modo no borra certificados por política, pero la importación autorizada sí modifica `LocalMachine\\Root`. Se aceptan CAs válidas y certificados no-CA únicamente si son autofirmados y la firma verifica criptográficamente. La operación es idempotente y requiere permisos de escritura. El certificado de prueba se llama `test_malicious.cer`; instalarlo confía en él como ancla de Windows y puede habilitar suplantación TLS para los nombres que cubra. Úsalo solo en una máquina de pruebas y verifica la huella por un canal independiente.
+
+Consulta [docs/architecture.md](docs/architecture.md) para el mapa de módulos y el flujo de configuración.
+
+Para comprobar la configuración ejecuta `cargo test -p formic-core` y `cargo run -p formic-core`; ambos evalúan el Nickel embebido. Revisa `logs/certs/current.log` para el motivo de cualquier fallback y el resultado de la importación. El CLI externo `nickel export config/default.ncl` sigue siendo opcional para validación manual, no es requisito de Formic. El certificado de prueba no está habilitado por defecto.
 
 Si Nickel no está disponible o la configuración no valida, el inspector registra el error y usa el modo de emergencia `alert_only`.
 

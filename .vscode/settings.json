@@ -16,7 +16,8 @@
             "json",
             "jsonc",
             "markdown",
-            "toml"
+            "toml",
+            "ignore",
         ],
         "excludeGlob": [
             "**/Cargo.toml"

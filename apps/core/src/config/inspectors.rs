@@ -13,14 +13,16 @@
  * (at your option) any later version.                                         *
  */
 
+//! Loads, validates, and resolves the Nickel configuration for certificate inspection.
 
 use anyhow::{bail, Context, Result};
+use nickel_lang::{Context as NickelContext, ErrorFormat as NickelErrorFormat};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
-use tracing::{info, warn};
 
+/// Selects how the certificate inspector evaluates and removes stored roots.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CertificateMode {
@@ -60,6 +62,7 @@ struct NickelCertificatePolicy {
 	import_certificates: Vec<String>,
 }
 
+/// Validated runtime policy for the Windows machine root store.
 #[derive(Debug, Clone)]
 pub struct CertificatePolicy {
 	mode: CertificateMode,
@@ -72,9 +75,14 @@ pub struct CertificatePolicy {
 
 #[derive(Debug, Clone)]
 pub struct CertificateConfig {
+	/// Deletion and audit policy for existing certificates.
 	pub policy: CertificatePolicy,
+	/// Explicit permission to add listed certificates to the machine root store.
 	pub allow_import: bool,
+	/// Canonical files resolved below `inspectors/certs/third_party`.
 	pub import_certificates: Vec<PathBuf>,
+	/// Configuration failure retained until tracing has been initialized.
+	pub load_error: Option<String>,
 }
 
 impl CertificatePolicy {
@@ -138,61 +146,62 @@ impl CertificateConfig {
 			policy: CertificatePolicy::emergency(),
 			allow_import: false,
 			import_certificates: Vec::new(),
+			load_error: None,
+		}
+	}
+
+	fn emergency_after(error: String) -> Self {
+		Self {
+			load_error: Some(error),
+			..Self::emergency()
 		}
 	}
 }
 
-pub fn load_certificate_config(
-	config_path: &Path,
-	nickel_binary: &Path,
-	) -> CertificateConfig {
-	match load_policy(config_path, nickel_binary) {
-		Ok(config) => {
-			info!(mode = ?config.policy.mode(), path = ?config_path, "Configuración del inspector de certificados cargada.");
-			config
-		}
-		Err(error) => {
-			warn!(
-				error = %error,
-				"No se pudo cargar la política Nickel; se usará el modo de emergencia alert_only."
-			);
-			CertificateConfig::emergency()
-		}
+pub fn load_certificate_config(config_path: &Path) -> CertificateConfig {
+	match load_policy(config_path) {
+		Ok(config) => config,
+		Err(error) => CertificateConfig::emergency_after(format!("{error:#}")),
 	}
 }
 
-fn load_policy(config_path: &Path, nickel_binary: &Path) -> Result<CertificateConfig> {
-	let config_directory = config_path
-		.parent()
-		.filter(|parent| !parent.as_os_str().is_empty())
-		.unwrap_or_else(|| Path::new("."));
-	let config_file = config_path
-		.file_name()
-		.context("la ruta de configuración no tiene nombre de archivo")?;
+fn load_policy(config_path: &Path) -> Result<CertificateConfig> {
+	let source_path = config_path
+		.canonicalize()
+		.with_context(|| format!("no se encuentra la configuración {}", config_path.display()))?;
+	let source = fs::read_to_string(&source_path)
+		.with_context(|| format!("no se pudo leer {}", source_path.display()))?;
+	let mut context = NickelContext::new().with_source_name(source_path.display().to_string());
+	let expression = context
+		.eval_deep(&source)
+		.map_err(|error| anyhow::anyhow!(format_nickel_error(error)))?;
+	let root = expression
+		.to_serde::<NickelRootConfig>()
+		.context("la salida evaluada por Nickel no cumple el esquema esperado")?;
 
-	let output = Command::new(nickel_binary)
-		.arg("export")
-		.arg(config_file)
-		.current_dir(config_directory)
-		.output()
-		.with_context(|| format!("no se pudo ejecutar Nickel ({})", nickel_binary.display()))?;
-
-	if !output.status.success() {
-		bail!(
-			"Nickel terminó con {}: {}",
-			output.status,
-			String::from_utf8_lossy(&output.stderr).trim()
-		);
-	}
-
-	parse_policy_json(&output.stdout, config_path)
+	build_certificate_config(root, &source_path)
 }
 
+fn format_nickel_error(error: nickel_lang::Error) -> String {
+	let mut formatted = Vec::new();
+	if error
+		.format(&mut formatted, NickelErrorFormat::Text)
+		.is_ok()
+	{
+		String::from_utf8_lossy(&formatted).into_owned()
+	} else {
+		format!("{error:?}")
+	}
+}
 
+#[cfg(test)]
 fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfig> {
 	let root: NickelRootConfig = serde_json::from_slice(json)
 		.context("la salida de Nickel no cumple el esquema JSON esperado")?;
+	build_certificate_config(root, config_path)
+}
 
+fn build_certificate_config(root: NickelRootConfig, config_path: &Path) -> Result<CertificateConfig> {
 	if root.schema_version != 1 {
 		bail!("versión de esquema no soportada: {}", root.schema_version);
 	}
@@ -201,11 +210,13 @@ fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfi
 	if config.mode != CertificateMode::AlertOnly && !config.allow_destructive {
 		bail!("los modos que borran certificados requieren allow_destructive = true");
 	}
-	if !config.allow_import && !config.import_certificates.is_empty() {
-		bail!("import_certificates requiere allow_import = true");
-	}
-	if config.mode == CertificateMode::AlertOnly && !config.import_certificates.is_empty() {
-		bail!("alert_only no puede importar certificados ni modificar el almacén");
+	if !config.import_certificates.is_empty() {
+		if !config.allow_import {
+			bail!("import_certificates requiere allow_import = true");
+		}
+		if !config.allow_destructive {
+			bail!("la importación modifica LocalMachine\\Root y requiere allow_destructive = true");
+		}
 	}
 
 	let baseline_sha256 = normalize_hashes(config.baseline_sha256, "baseline_sha256")?;
@@ -257,6 +268,7 @@ fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfi
 		},
 		allow_import: config.allow_import,
 		import_certificates,
+		load_error: None,
 	})
 }
 
@@ -317,8 +329,20 @@ fn normalize_hashes(values: Vec<String>, field: &str) -> Result<HashSet<String>>
 
 #[cfg(test)]
 mod tests {
-	use super::{parse_policy_json, CertificateMode};
+	use super::{load_policy, parse_policy_json, CertificateMode};
 	use std::path::Path;
+use std::path::PathBuf;
+
+	#[test]
+	fn evaluates_repository_nickel_config_in_process() {
+		let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+			.join("../../config/default.ncl");
+		let config = load_policy(&config_path).unwrap();
+
+		assert_eq!(config.policy.mode(), CertificateMode::AlertOnly);
+		assert!(!config.allow_import);
+		assert!(config.import_certificates.is_empty());
+	}
 
 	fn config(mode: &str, allow_destructive: bool) -> Vec<u8> {
 		serde_json::json!({
@@ -396,12 +420,16 @@ mod tests {
 	}
 
 	#[test]
-	fn alert_only_rejects_certificate_imports() {
-		let mut value: serde_json::Value = serde_json::from_slice(&config("alert_only", false)).unwrap();
+	fn alert_only_can_import_when_both_flags_are_explicit() {
+		let mut value: serde_json::Value = serde_json::from_slice(&config("alert_only", true)).unwrap();
 		value["inspectors"]["certs"]["allow_import"] = serde_json::Value::Bool(true);
 		value["inspectors"]["certs"]["import_certificates"] =
-			serde_json::json!(["third_party/vendor-root.pem"]);
-		assert!(parse_policy_json(value.to_string().as_bytes(), Path::new("config/default.ncl")).is_err());
+			serde_json::json!(["third_party/test_malicious.cer"]);
+		let config_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/default.ncl");
+
+		let loaded = parse_policy_json(value.to_string().as_bytes(), &config_path).unwrap();
+		assert_eq!(loaded.policy.mode(), CertificateMode::AlertOnly);
+		assert_eq!(loaded.import_certificates.len(), 1);
 	}
 
 	#[test]
@@ -420,6 +448,7 @@ mod tests {
 				"mode": "minimal",
 				"baseline_sha256": [thumbprint.to_ascii_uppercase()],
 				"allow_sha256": [],
+				"allow_issuer_name_sha256": [],
 				"deny_sha256": [],
 				"deny_issuer_name_sha256": [],
 				"allow_destructive": true,

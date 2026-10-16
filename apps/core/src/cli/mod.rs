@@ -32,7 +32,4 @@ pub struct Cli {
     #[arg(long, value_name = "FILE", default_value = "config/default.ncl")]
     pub inspectors_config: PathBuf,
 
-    /// Ejecutable Nickel (en producción, usar una ruta absoluta protegida)
-    #[arg(long, value_name = "PATH", default_value = "nickel")]
-    pub nickel_binary: PathBuf,
 }

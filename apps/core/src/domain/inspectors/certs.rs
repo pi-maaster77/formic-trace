@@ -13,11 +13,15 @@
  * (at your option) any later version.                                         *
  */
 
-/* este modulo es responsable de gestionar la inspección y purga de certificados raíz */
+//! Audits `LocalMachine\\Root` and applies the configured certificate policy.
+//!
+//! Imports are a separate, opt-in operation: they require both `allow_import`
+//! and `allow_destructive`. `alert_only` disables policy-driven deletion but
+//! does not disable an explicitly authorized import.
 
 
 use crate::logger::{self, ComponentLoggerGuard};
-use crate::config::inspectors::{CertificateConfig, CertificateMode, CertificatePolicy};
+use crate::config::inspectors::{CertificateConfig, CertificatePolicy};
 use schannel::cert_context::{CertContext, HashAlgorithm};
 use schannel::cert_store::CertAdd;
 use tracing::{error, info, warn};
@@ -28,8 +32,10 @@ use std::fs;
 use std::fmt::Write as _;
 use std::thread;
 use std::time::Duration;
+use x509_parser::certificate::X509Certificate;
 use x509_parser::parse_x509_certificate;
 
+/// Audits and enforces certificate policy for the Windows machine root store.
 pub struct CertsInspector {
     component_name: String,
     policy: CertificatePolicy,
@@ -39,8 +45,16 @@ pub struct CertsInspector {
 }
 
 impl CertsInspector {
+    /// Creates the inspector from validated Nickel configuration.
     pub fn new(component_name: &str, config: CertificateConfig) -> Self {
         let guard = logger::init_component_logger(component_name);
+        if let Some(error) = config.load_error.as_deref() {
+            warn!(
+                component = component_name,
+                error = %error,
+                "No se pudo cargar Nickel; se activa el modo de emergencia alert_only."
+            );
+        }
         info!(component = component_name, mode = ?config.policy.mode(), "Inspector de certificados inicializado.");
 
         Self {
@@ -52,13 +66,14 @@ impl CertsInspector {
         }
     }
 
+    /// Performs any explicitly authorized imports, then polls the store until stopped.
     pub fn execute(&self) -> anyhow::Result<()> {
         info!(
             component = %self.component_name,
             "Iniciando escaneo activo y purga de confianza..."
         );
 
-        if self.allow_import && self.policy.mode() != CertificateMode::AlertOnly {
+        if self.allow_import {
             if let Err(error) = self.import_third_party_certificates() {
                 error!(
                     component = %self.component_name,
@@ -110,10 +125,13 @@ impl CertsInspector {
             let thumbprint = encode_hex(&certificate.fingerprint(HashAlgorithm::sha256())?);
             let (_, parsed) = parse_x509_certificate(certificate.to_der())
                 .map_err(|error| anyhow::anyhow!("DER X.509 inválido en {}: {error}", path.display()))?;
-            if !parsed.is_ca() || !certificate.is_time_valid()? {
-                anyhow::bail!(
-                    "el certificado debe ser una CA actualmente válida: {}",
-                    path.display()
+            let is_self_signed_leaf = validate_import_candidate(&certificate, &parsed)?;
+            if is_self_signed_leaf {
+                warn!(
+                    component = %self.component_name,
+                    path = %path.display(),
+                    thumbprint = %thumbprint,
+                    "Se autoriza explícitamente un certificado autofirmado sin CA:true como ancla de confianza."
                 );
             }
 
@@ -243,6 +261,28 @@ impl CertsInspector {
 
         *previous_inventory = Some(current_inventory);
     }
+}
+
+fn validate_import_candidate(
+    certificate: &CertContext,
+    parsed: &X509Certificate<'_>,
+) -> anyhow::Result<bool> {
+    if !certificate.is_time_valid()? {
+        anyhow::bail!("el certificado está fuera de su período de validez");
+    }
+
+    if parsed.is_ca() {
+        return Ok(false);
+    }
+
+    if parsed.subject() != parsed.issuer() {
+        anyhow::bail!("el certificado no es CA ni está autofirmado");
+    }
+
+    parsed
+        .verify_signature(None)
+        .map_err(|error| anyhow::anyhow!("falló la verificación de autofirma: {error}"))?;
+    Ok(true)
 }
 
 fn issuer_name_sha256(certificate: &CertContext) -> anyhow::Result<String> {

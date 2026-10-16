@@ -1,11 +1,7 @@
-/*
- * Filename: b:\Proyectos\rust\Formic\config\inspectors\certs\default.ncl
- * Path: b:\Proyectos\rust\Formic\config\inspectors\certs
- * Created Date: Thursday, October 15th 2026, 8:48:38 pm
- * Author: pi-maaster77
- *
- * Copyright (c) 2026 Your Company
- */
+# Filename: default.ncl
+# Path: config/inspectors/certs
+# Created Date: October 15, 2026
+# Author: pi-maaster77
 
 let Sha256 =
   std.contract.from_predicate (fun value =>
