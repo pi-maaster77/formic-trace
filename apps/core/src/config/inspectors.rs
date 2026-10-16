@@ -52,6 +52,7 @@ struct NickelCertificatePolicy {
 	mode: CertificateMode,
 	baseline_sha256: Vec<String>,
 	allow_sha256: Vec<String>,
+    allow_issuer_name_sha256: Vec<String>,
 	deny_sha256: Vec<String>,
 	deny_issuer_name_sha256: Vec<String>,
 	allow_destructive: bool,
@@ -64,6 +65,7 @@ pub struct CertificatePolicy {
 	mode: CertificateMode,
 	baseline_sha256: HashSet<String>,
 	allow_sha256: HashSet<String>,
+	allow_issuer_name_sha256: HashSet<String>,
 	deny_sha256: HashSet<String>,
 	deny_issuer_name_sha256: HashSet<String>,
 }
@@ -81,6 +83,7 @@ impl CertificatePolicy {
 			mode: CertificateMode::AlertOnly,
 			baseline_sha256: HashSet::new(),
 			allow_sha256: HashSet::new(),
+            allow_issuer_name_sha256: HashSet::new(),
 			deny_sha256: HashSet::new(),
 			deny_issuer_name_sha256: HashSet::new(),
 		}
@@ -107,16 +110,21 @@ impl CertificatePolicy {
 			return true;
 		}
 
-		if self.deny_sha256.contains(thumbprint)
-			|| issuer_name_sha256
-				.is_some_and(|hash| self.deny_issuer_name_sha256.contains(hash))
+		let issuer_is_denied = issuer_name_sha256
+			.is_some_and(|hash| self.deny_issuer_name_sha256.contains(hash));
+		if self.deny_sha256.contains(thumbprint) || issuer_is_denied
 		{
 			return true;
 		}
 
 		match self.mode {
 			CertificateMode::Minimal => !self.baseline_sha256.contains(thumbprint),
-			CertificateMode::Whitelist => !self.allow_sha256.contains(thumbprint),
+			CertificateMode::Whitelist => {
+				let certificate_is_allowed = self.allow_sha256.contains(thumbprint);
+				let issuer_is_allowed = issuer_name_sha256
+					.is_some_and(|hash| self.allow_issuer_name_sha256.contains(hash));
+				!(certificate_is_allowed || issuer_is_allowed)
+			}
 			CertificateMode::Blacklist | CertificateMode::AlertOnly | CertificateMode::PurgeAll => {
 				false
 			}
@@ -202,6 +210,10 @@ fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfi
 
 	let baseline_sha256 = normalize_hashes(config.baseline_sha256, "baseline_sha256")?;
 	let allow_sha256 = normalize_hashes(config.allow_sha256, "allow_sha256")?;
+	let allow_issuer_name_sha256 = normalize_hashes(
+		config.allow_issuer_name_sha256,
+		"allow_issuer_name_sha256",
+	)?;
 	let deny_sha256 = normalize_hashes(config.deny_sha256, "deny_sha256")?;
 	let deny_issuer_name_sha256 = normalize_hashes(
 		config.deny_issuer_name_sha256,
@@ -212,8 +224,10 @@ fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfi
 		CertificateMode::Minimal if baseline_sha256.is_empty() => {
 			bail!("minimal requiere al menos una huella en baseline_sha256");
 		}
-		CertificateMode::Whitelist if allow_sha256.is_empty() => {
-			bail!("whitelist requiere al menos una huella en allow_sha256");
+		CertificateMode::Whitelist
+			if allow_sha256.is_empty() && allow_issuer_name_sha256.is_empty() =>
+		{
+			bail!("whitelist requiere allow_sha256 o allow_issuer_name_sha256");
 		}
 		CertificateMode::Blacklist
 			if deny_sha256.is_empty() && deny_issuer_name_sha256.is_empty() =>
@@ -237,6 +251,7 @@ fn parse_policy_json(json: &[u8], config_path: &Path) -> Result<CertificateConfi
 			mode: config.mode,
 			baseline_sha256,
 			allow_sha256,
+			allow_issuer_name_sha256,
 			deny_sha256,
 			deny_issuer_name_sha256,
 		},
@@ -312,6 +327,7 @@ mod tests {
 				"mode": mode,
 				"baseline_sha256": [],
 				"allow_sha256": [],
+				"allow_issuer_name_sha256": [],
 				"deny_sha256": [],
 				"deny_issuer_name_sha256": [],
 				"allow_destructive": allow_destructive,
@@ -336,6 +352,41 @@ mod tests {
 	fn rejects_empty_whitelist() {
 		let json = config("whitelist", true);
 		assert!(parse_policy_json(&json, Path::new("config/default.ncl")).is_err());
+	}
+
+	#[test]
+	fn whitelist_can_allow_an_issuer_name_without_certificate_hashes() {
+		let issuer_hash = "ab".repeat(32);
+		let mut value: serde_json::Value = serde_json::from_slice(&config("whitelist", true)).unwrap();
+		value["inspectors"]["certs"]["allow_issuer_name_sha256"] =
+			serde_json::json!([issuer_hash]);
+		let policy = parse_policy_json(
+			value.to_string().as_bytes(),
+			Path::new("config/default.ncl"),
+		)
+		.unwrap()
+		.policy;
+
+		assert!(!policy.should_delete("cd", Some(&issuer_hash)));
+		assert!(policy.should_delete("cd", Some(&"ef".repeat(32))));
+	}
+
+	#[test]
+	fn certificate_blacklist_overrides_issuer_whitelist() {
+		let issuer_hash = "ab".repeat(32);
+		let thumbprint = "cd".repeat(32);
+		let mut value: serde_json::Value = serde_json::from_slice(&config("whitelist", true)).unwrap();
+		value["inspectors"]["certs"]["allow_issuer_name_sha256"] =
+			serde_json::json!([issuer_hash]);
+		value["inspectors"]["certs"]["deny_sha256"] = serde_json::json!([thumbprint]);
+		let policy = parse_policy_json(
+			value.to_string().as_bytes(),
+			Path::new("config/default.ncl"),
+		)
+		.unwrap()
+		.policy;
+
+		assert!(policy.should_delete(&thumbprint, Some(&issuer_hash)));
 	}
 
 	#[test]
