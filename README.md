@@ -68,6 +68,24 @@ Para comprobar la configuración ejecuta `cargo test -p formic-core` y `cargo ru
 
 Si Nickel no está disponible o la configuración no valida, el inspector registra el error y usa el modo de emergencia `alert_only`.
 
+## Variables de entorno
+
+La política está en `config/inspectors/environment/default.ncl`. Declara valores exactos bajo `user` para el usuario actual o bajo `system` para las variables persistentes de Windows. Por ejemplo, la prueba incluida declara `PRUEBA = "ESTOESUNAPRUEBA"` en `user`.
+
+Para agregar otra variable, añade su nombre y valor al mapa correspondiente:
+
+```nickel
+{
+    system = {},
+    user = {
+        PRUEBA = "ESTOESUNAPRUEBA",
+        MI_VARIABLE = "mi valor",
+    },
+}
+```
+
+Ejecuta `cargo run -p formic-core -- --inspect-environment` para aplicarla y mantenerla. El monitor repone valores declarados que falten o cambien y elimina cualquier valor no declarado cada segundo. La lista es autoritativa: omitir una variable significa que será borrada. La lista de sistema necesita permisos elevados; el ámbito de usuario corresponde a la cuenta que ejecuta Formic. No guarda los valores en los logs, solo sus hashes. Las variables ya cargadas en procesos existentes no se actualizan automáticamente.
+
 ## Licencia
 
 Este proyecto se distribuye bajo la licencia **GNU General Public License v3.0 (GPLv3)**. 

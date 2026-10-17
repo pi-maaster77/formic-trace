@@ -35,5 +35,4 @@ pub struct Cli {
     /// Configuración Nickel para la política de certificados raíz
     #[arg(long, value_name = "FILE", default_value = "config/default.ncl")]
     pub inspectors_config: PathBuf,
-
 }

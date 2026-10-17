@@ -4,7 +4,7 @@
  * Project: src                                                                *
  * Author: pi-maaster77                                                        *
  * Created Date: Sa/10/2026 11:06:27                                           *
- * Last Modified: Thu Oct 15 2026                                              *
+ * Last Modified: Sat Oct 17 2026                                              *
  *                                                                             *
  * License: GNU General Public License v3.0 (GPLv3)                            *
  * This program is free software: you can redistribute it and/or modify        *
@@ -25,7 +25,20 @@ use clap::Parser;
 use domain::inspectors::certs::CertsInspector;
 use engine::calibrate::inspectors::InspectorsCalibrator;
 use cli::Cli;
+use crate::domain::inspectors::environment;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread;
 
+struct StopOnDrop(Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
 
 fn main() {
     // El main solo crea la instancia; el componente se encarga de todo lo demás
@@ -39,15 +52,66 @@ fn main() {
     }
     if args.inspect_environment {
         let _logger_guard = logger::init_component_logger("environment");
-        if let Err(error) = domain::inspectors::environment::inspect() {
-            tracing::error!(error = %error, "Falló el inventario de variables de entorno.");
+        let policy = match config::inspectors::load_environment_policy(&args.inspectors_config) {
+            Ok(policy) => policy,
+            Err(error) => {
+                tracing::error!(error = %error, "Se rechaza el monitoreo: la política Nickel de entorno no es válida.");
+                return;
+            }
+        };
+        if let Err(error) = domain::inspectors::environment::inspect(&policy) {
+            tracing::error!(error = %error, "Falló la aplicación de la política de entorno.");
         }
         return;
     }
+
+    let _logger_guard = logger::init_runtime_logger();
+    let environment_policy = match config::inspectors::load_environment_policy(&args.inspectors_config) {
+        Ok(policy) => policy,
+        Err(error) => {
+            eprintln!("Se rechaza el monitoreo: la política Nickel de entorno no es válida: {error:#}");
+            return;
+        }
+    };
     let certificate_config =
         config::inspectors::load_certificate_config(&args.inspectors_config);
     let certs_inspector = CertsInspector::new("certs", certificate_config);
-    if let Err(error) = certs_inspector.execute() {
-        eprintln!("Falló el inspector de certificados: {error:#}");
+
+    let running = Arc::new(AtomicBool::new(true));
+    let signal_flag = Arc::clone(&running);
+    if let Err(error) = ctrlc::set_handler(move || {
+        signal_flag.store(false, Ordering::Relaxed);
+    }) {
+        tracing::error!(error = %error, "No se pudo instalar el manejador de apagado.");
+        return;
+    }
+
+    let certs_running = Arc::clone(&running);
+    let certs_thread = thread::spawn(move || {
+        let _stop_on_exit = StopOnDrop(certs_running.clone());
+        certs_inspector.execute_until_stopped(certs_running.as_ref())
+    });
+
+    let environment_running = Arc::clone(&running);
+    let environment_thread = thread::spawn(move || {
+        let _stop_on_exit = StopOnDrop(environment_running.clone());
+        environment::inspect_until_stopped(&environment_policy, environment_running.as_ref())
+    });
+
+    if let Err(error) = join_inspector("certificados", certs_thread) {
+        tracing::error!(error = %error, "Terminó el inspector de certificados con error.");
+    }
+    if let Err(error) = join_inspector("entorno", environment_thread) {
+        tracing::error!(error = %error, "Terminó el inspector de entorno con error.");
+    }
+}
+
+fn join_inspector(
+    name: &str,
+    handle: thread::JoinHandle<anyhow::Result<()>>,
+) -> anyhow::Result<()> {
+    match handle.join() {
+        Ok(result) => result,
+        Err(_) => anyhow::bail!("el hilo del inspector {name} terminó por panic"),
     }
 }

@@ -24,8 +24,8 @@ mod import;
 mod store;
 
 use crate::config::inspectors::{CertificateConfig, CertificatePolicy};
-use crate::logger::{self, ComponentLoggerGuard};
 use schannel::cert_store::CertStore;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{error, info};
 use std::thread;
 use std::time::Duration;
@@ -36,13 +36,11 @@ pub struct CertsInspector {
     policy: CertificatePolicy,
     allow_import: bool,
     import_certificates: Vec<std::path::PathBuf>,
-    _logger_guard: ComponentLoggerGuard,
 }
 
 impl CertsInspector {
     /// Creates the inspector from validated Nickel configuration.
     pub fn new(component_name: &str, config: CertificateConfig) -> Self {
-        let guard = logger::init_component_logger(component_name);
         if let Some(error) = config.load_error.as_deref() {
             error!(
                 component = component_name,
@@ -57,12 +55,11 @@ impl CertsInspector {
             policy: config.policy,
             allow_import: config.allow_import,
             import_certificates: config.import_certificates,
-            _logger_guard: guard,
         }
     }
 
-    /// Performs any explicitly authorized imports, then polls the store until stopped.
-    pub fn execute(&self) -> anyhow::Result<()> {
+    /// Performs any explicitly authorized imports, then polls until shutdown.
+    pub fn execute_until_stopped(&self, running: &AtomicBool) -> anyhow::Result<()> {
         info!(
             component = %self.component_name,
             "Iniciando escaneo activo y purga de confianza..."
@@ -83,7 +80,7 @@ impl CertsInspector {
         }
 
         let mut previous_inventory = None;
-        loop {
+        while running.load(Ordering::Relaxed) {
             match CertStore::open_local_machine("Root") {
                 Ok(store) => {
                     store::inspect_store(
@@ -104,5 +101,8 @@ impl CertsInspector {
 
             thread::sleep(Duration::from_secs(2));
         }
+
+        info!(component = %self.component_name, "Inspector de certificados detenido.");
+        Ok(())
     }
 }

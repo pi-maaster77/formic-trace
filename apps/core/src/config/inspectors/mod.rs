@@ -23,8 +23,10 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 mod policy;
+mod environment;
 
 pub use policy::{CertificateConfig, CertificateMode, CertificatePolicy};
+pub use environment::{load_environment_policy, EnvironmentPolicy};
 
 #[cfg(test)]
 #[path = "tests.rs"]

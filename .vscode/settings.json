@@ -19,7 +19,8 @@
             "toml",
             "ignore",
             "nickel",
-            "powershell"
+            "powershell",
+            "log"
         ],
         "excludeGlob": [
             "**/Cargo.toml"
