@@ -5,9 +5,13 @@ Identificaremos qué subsistemas son **islas independientes** (perfectos para ar
 ---
 
 ### 1. Matriz de Interacciones y Dependencias de Formic
-*(BitLocker, Printeando, USB)* | **Isla (Leaf)** | Ninguno (WMI / SetupAPI) | Ninguno (Principalmente inventario) | **Bajo** |
-| **`inspectors/identity/...`**
-*(Users, Groups, Credentials)* | **Isla (Leaf)** | Ninguno (NetAPI32 / SAM) | `policies/tokens` (Contexto de seguridad) | **Medio** (Si bloqueás SAM, rompes logon) |
+
+| Subsistema / Módulo | Tipo | Depende de (Requiere a...) | Es requerido por (Alimenta a...) | Nivel de Riesgo (si aplicás Default-Deny) |
+| :--- | :--- | :--- | :--- | :--- |
+| **`inspectors/certs`** | **Isla (Leaf)** | Ninguno (CryptoAPI nativa) | `policies/processes` (para WinVerifyTrust) | **Bajo** (Seguro para empezar) |
+| **`inspectors/environment`** | **Isla (Leaf)** | Ninguno (Registry básico) | `policies/processes` (Path de ejecución) | **Bajo** |
+| **`inspectors/hardware/...`**<br>*(BitLocker, Printeando, USB)* | **Isla (Leaf)** | Ninguno (WMI / SetupAPI) | Ninguno (Principalmente inventario) | **Bajo** |
+| **`inspectors/identity/...`**<br>*(Users, Groups, Credentials)* | **Isla (Leaf)** | Ninguno (NetAPI32 / SAM) | `policies/tokens` (Contexto de seguridad) | **Medio** (Si bloqueás SAM, rompes logon) |
 | **`inspectors/system_features`** | **Isla (Leaf)** | Ninguno (DISM / IP Helper) | Ninguno (Configuración estática) | **Bajo** |
 | **`inspectors/registry`** | **Hub Base** | Ninguno (Advapi32 base) | *Casi todo el sistema* | **Alto** (El registro es el sistema) |
 | **`inspectors/filesystem`** | **Hub Base** | Ninguno (Win32 CreateFile) | *Casi todo el sistema* | **Alto** (Bloquear FS cuelga el kernel) |
@@ -20,6 +24,7 @@ Identificaremos qué subsistemas son **islas independientes** (perfectos para ar
 | **`policies/wmi`** | **Intercepción** | Ninguno (COM / WBEM) | Ninguno (Persistencia fileless) | **Bajo** |
 | **`policies/sessions`** | **Intercepción** | Ninguno (WTS API) | Ninguno (Control de RDP) | **Bajo** |
 | **`policies/processes`** | **Gran Hub Central** | **Filesystem, Certs, Tokens, Registry** | El motor entero de enforcement | **Crítico** (Corazón de Formic) |
+
 
 ---
 
