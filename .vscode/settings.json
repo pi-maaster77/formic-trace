@@ -18,7 +18,8 @@
             "markdown",
             "toml",
             "ignore",
-            "nickel"
+            "nickel",
+            "powershell"
         ],
         "excludeGlob": [
             "**/Cargo.toml"

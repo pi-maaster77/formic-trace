@@ -20,22 +20,16 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub struct ComponentLoggerGuard {
-    _worker_guard: Option<WorkerGuard>,
+    current_worker_guard: Option<WorkerGuard>,
+    timestamp_worker_guard: Option<WorkerGuard>,
     current_file_path: PathBuf,
-    timestamp_file_path: PathBuf,
 }
 
 impl Drop for ComponentLoggerGuard {
     fn drop(&mut self) {
-        // Tomamos el guard para forzar su liberación sin violar el préstamo mutable
-        let _ = self._worker_guard.take();
-
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        if self.current_file_path.exists() {
-            let _ = fs::copy(&self.current_file_path, &self.timestamp_file_path);
-            let _ = fs::remove_file(&self.current_file_path);
-        }
+        let _ = self.current_worker_guard.take();
+        let _ = self.timestamp_worker_guard.take();
+        let _ = fs::remove_file(&self.current_file_path);
     }
 }
 
@@ -44,25 +38,39 @@ pub fn init_component_logger(component_name: &str) -> ComponentLoggerGuard {
     fs::create_dir_all(&dir_path).unwrap_or_default();
 
     let current_file_path = PathBuf::from(&dir_path).join("current.log");
-    
     let now = Utc::now();
-    let timestamp_str = now.format("%Y-%m-%d_%H-%M-%S").to_string();
+    let timestamp_str = now.format("%Y-%m-%d_%H-%M-%S%.3f").to_string();
     let timestamp_file_path = PathBuf::from(&dir_path).join(format!("{}.log", timestamp_str));
 
     let _ = fs::write(&current_file_path, "");
+    let _ = fs::write(&timestamp_file_path, "");
 
-    let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+    let current_file_appender = tracing_appender::rolling::RollingFileAppender::new(
         tracing_appender::rolling::Rotation::NEVER,
         &dir_path,
         "current.log",
     );
-    let (non_blocking, worker_guard) = tracing_appender::non_blocking(file_appender);
+    let timestamp_file_appender = tracing_appender::rolling::RollingFileAppender::new(
+        tracing_appender::rolling::Rotation::NEVER,
+        &dir_path,
+        format!("{}.log", timestamp_str),
+    );
+    let (current_writer, current_worker_guard) =
+        tracing_appender::non_blocking(current_file_appender);
+    let (timestamp_writer, timestamp_worker_guard) =
+        tracing_appender::non_blocking(timestamp_file_appender);
 
     let _ = tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(
             fmt::layer()
-                .with_writer(non_blocking)
+                .with_writer(current_writer)
+                .with_ansi(false)
+                .with_target(false),
+        )
+        .with(
+            fmt::layer()
+                .with_writer(timestamp_writer)
                 .with_ansi(false)
                 .with_target(false),
         )
@@ -74,8 +82,8 @@ pub fn init_component_logger(component_name: &str) -> ComponentLoggerGuard {
         .try_init();
 
     ComponentLoggerGuard {
-        _worker_guard: Some(worker_guard),
+        current_worker_guard: Some(current_worker_guard),
+        timestamp_worker_guard: Some(timestamp_worker_guard),
         current_file_path,
-        timestamp_file_path,
     }
 }
