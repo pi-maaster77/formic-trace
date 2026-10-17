@@ -8,11 +8,14 @@ The inspection path evaluates `config/default.ncl` in process through the stable
 
 The certificate inspector opens `LocalMachine\\Root` through Schannel, inventories certificates, computes SHA-256 fingerprints and issuer-name hashes, then applies the configured policy. Enumeration is collected before deletion to avoid mutating the store iterator. Importing files is a separate operation and never occurs unless both `allow_import` and `allow_destructive` are true.
 
+The environment inspector is an explicit, read-only CLI operation (`formic-core --inspect-environment`). It reads persistent machine variables from `HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment` and current-user variables from `HKCU\\Environment`, then compares snapshots every second and logs added, changed, and removed values by name and SHA-256 hash, never by potentially sensitive value. Press `Ctrl+C` to stop monitoring. This currently watches the account running the CLI; a future `SYSTEM` service will need a user-session handler and authenticated IPC to inspect the interactive user's hive.
+
 ## Repository Map
 
 - `apps/core/src/cli/`: command-line arguments, including the Nickel config path.
 - `apps/core/src/config/`: deserialize Nickel's exported data and validate policy invariants.
 - `apps/core/src/domain/inspectors/`: runtime inspectors; certificate-store operations live in `certs.rs`.
+- `apps/core/src/domain/inspectors/environment.rs`: read-only inventory of persistent machine and current-user environment variables.
 - `apps/core/src/engine/calibrate/`: read-only capture of the root-store SHA-256 baseline.
 - `apps/core/src/logger.rs`: component log files under `logs/` and stdout tracing.
 - `config/default.ncl`: imports the per-inspector and per-policy Nickel files.

@@ -24,6 +24,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub calibrate: bool,
 
+    /// Monitorea las variables persistentes del sistema y del usuario actual hasta Ctrl+C
+    #[arg(long, default_value_t = false)]
+    pub inspect_environment: bool,
+
     /// Ruta personalizada opcional para guardar la línea base generada
     #[arg(long, value_name = "FILE", default_value = "config/inspectors/certs/baseline.toml")]
     pub baseline_output: PathBuf,

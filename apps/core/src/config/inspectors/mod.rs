@@ -4,7 +4,7 @@
  * Project: config                                                             *
  * Author: pi-maaster77                                                        *
  * Created Date: We/10/2026 15:44:20                                           *
- * Last Modified: Thu Oct 15 2026                                              *
+ * Last Modified: Sat Oct 17 2026                                              *
  *                                                                             *
  * License: GNU General Public License v3.0 (GPLv3)                            *
  * This program is free software: you can redistribute it and/or modify        *
@@ -27,7 +27,7 @@ mod policy;
 pub use policy::{CertificateConfig, CertificateMode, CertificatePolicy};
 
 #[cfg(test)]
-#[path = "inspectors/tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[derive(Debug, Deserialize)]

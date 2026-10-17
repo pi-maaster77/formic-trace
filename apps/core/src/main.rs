@@ -37,6 +37,13 @@ fn main() {
         }
         return; 
     }
+    if args.inspect_environment {
+        let _logger_guard = logger::init_component_logger("environment");
+        if let Err(error) = domain::inspectors::environment::inspect() {
+            tracing::error!(error = %error, "Falló el inventario de variables de entorno.");
+        }
+        return;
+    }
     let certificate_config =
         config::inspectors::load_certificate_config(&args.inspectors_config);
     let certs_inspector = CertsInspector::new("certs", certificate_config);
