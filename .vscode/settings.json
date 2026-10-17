@@ -18,6 +18,7 @@
             "markdown",
             "toml",
             "ignore",
+            "nickel"
         ],
         "excludeGlob": [
             "**/Cargo.toml"
