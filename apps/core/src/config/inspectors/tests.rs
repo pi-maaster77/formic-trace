@@ -1,4 +1,5 @@
-use super::{load_policy, parse_policy_json, CertificateMode};
+use super::{load_policy, parse_policy_json};
+use super::super::CertificateMode;
 use std::path::{Path, PathBuf};
 
 #[test]

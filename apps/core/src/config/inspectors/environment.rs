@@ -1,9 +1,26 @@
+/*
+ * File: environment.rs                                                        *
+ * Path: b:\Proyectos\rust\Formic\apps\core\src\config\inspectors\environment.rs *
+ * Project: inspectors                                                         *
+ * Author: pi-maaster77                                                        *
+ * Created Date: Sa/10/2026 03:41:34                                           *
+ * Last Modified: Sun Oct 18 2026                                              *
+ *                                                                             *
+ * License: GNU General Public License v3.0 (GPLv3)                            *
+ * This program is free software: you can redistribute it and/or modify        *
+ * it under the terms of the GNU General Public License as published by        *
+ * the Free Software Foundation, either version 3 of the License, or           *
+ * (at your option) any later version.                                         *
+ */
+
 use anyhow::{bail, Context, Result};
 use nickel_lang::Context as NickelContext;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
+
+use super::nickel::format_nickel_error;
 
 #[derive(Debug, Deserialize)]
 struct NickelRootEnvironmentConfig {
@@ -35,7 +52,7 @@ pub fn load_environment_policy(config_path: &Path) -> Result<EnvironmentPolicy> 
     let mut context = NickelContext::new().with_source_name(source_path.display().to_string());
     let expression = context
         .eval_deep(&source)
-        .map_err(|error| anyhow::anyhow!(super::format_nickel_error(error)))?;
+        .map_err(|error| anyhow::anyhow!(format_nickel_error(error)))?;
     let root = expression
         .to_serde::<NickelRootEnvironmentConfig>()
         .context("la salida evaluada por Nickel no contiene una política de entorno válida")?;
