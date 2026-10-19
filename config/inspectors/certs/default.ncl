@@ -26,7 +26,7 @@ in
   deny_sha256 = [],
   deny_issuer_name_sha256 = [],
   allow_destructive = false,
-  allow_import = true,
+  allow_import = false,
   # The following certificate is a malicious test certificate that is used to test the certificate inspector. It is not a real certificate and should not be trusted. It is included in the configuration to demonstrate how the certificate inspector can detect and handle malicious certificates.
-  import_certificates = ["third_party/test_malicious.cer"],
+  import_certificates = [],
 } | CertificatePolicy

@@ -64,12 +64,33 @@ fn main() {
         }
         return;
     }
+    if args.inspect_system_features {
+        let _logger_guard = logger::init_component_logger("system_features");
+        let policy = match config::inspectors::load_system_features_policy(&args.inspectors_config) {
+            Ok(policy) => policy,
+            Err(error) => {
+                tracing::error!(error = %error, "Se rechaza el monitoreo: la política Nickel de características del sistema no es válida.");
+                return;
+            }
+        };
+        if let Err(error) = domain::inspectors::system_features::inspect(&policy) {
+            tracing::error!(error = %error, "Falló la aplicación de la política de características del sistema.");
+        }
+        return;
+    }
 
     let _logger_guard = logger::init_runtime_logger();
     let environment_policy = match config::inspectors::load_environment_policy(&args.inspectors_config) {
         Ok(policy) => policy,
         Err(error) => {
             eprintln!("Se rechaza el monitoreo: la política Nickel de entorno no es válida: {error:#}");
+            return;
+        }
+    };
+    let system_features_policy = match config::inspectors::load_system_features_policy(&args.inspectors_config) {
+        Ok(policy) => policy,
+        Err(error) => {
+            eprintln!("Se rechaza el monitoreo: la política Nickel de características del sistema no es válida: {error:#}");
             return;
         }
     };
@@ -98,11 +119,23 @@ fn main() {
         environment::inspect_until_stopped(&environment_policy, environment_running.as_ref())
     });
 
+    let system_features_running = Arc::clone(&running);
+    let system_features_thread = thread::spawn(move || {
+        let _stop_on_exit = StopOnDrop(system_features_running.clone());
+        domain::inspectors::system_features::inspect_until_stopped(
+            &system_features_policy,
+            system_features_running.as_ref(),
+        )
+    });
+
     if let Err(error) = join_inspector("certificados", certs_thread) {
         tracing::error!(error = %error, "Terminó el inspector de certificados con error.");
     }
     if let Err(error) = join_inspector("entorno", environment_thread) {
         tracing::error!(error = %error, "Terminó el inspector de entorno con error.");
+    }
+    if let Err(error) = join_inspector("características del sistema", system_features_thread) {
+        tracing::error!(error = %error, "Terminó el inspector de características del sistema con error.");
     }
 }
 

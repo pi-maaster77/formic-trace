@@ -10,20 +10,22 @@ The certificate inspector opens `LocalMachine\\Root` through Schannel, inventori
 
 The environment inspector is an explicit CLI operation (`formic-core --inspect-environment`); normal runtime starts it alongside the certificate inspector. Nickel declares exact machine and current-user values in `config/inspectors/environment/default.ncl`. At startup and every second, the monitor deletes undeclared variables and restores declared variables that were removed or changed; logs contain hashes, never values. The example declares `PRUEBA = "ESTOESUNAPRUEBA"` for the current user. The policy is authoritative: omitting a variable means it will be deleted. Machine-scope writes require elevated permissions, and the user scope is the account running Formic. Existing process environment blocks are not updated. Press `Ctrl+C` to stop monitoring. A future `SYSTEM` service will need a user-session handler and authenticated IPC for the interactive user's hive.
 
+The system features inspector (`formic-core --inspect-system-features`) inventories and reconciles Windows Optional Features (e.g. WSL, NetFx3, Hyper-V) and Capabilities / Features on Demand (e.g. OpenSSH, Internet Explorer) against `config/inspectors/system_features/default.ncl`. All low-level FFI interaction with the Windows DISM API (`DismApi.dll`) is completely isolated in the safe library crate `libs/windows-features`, allowing `apps/core` to maintain `#![forbid(unsafe_code)]`.
+
 ## Repository Map
 
 - `apps/core/src/cli/`: command-line arguments, including the Nickel config path.
 - `apps/core/src/config/`: deserialize Nickel's exported data and validate policy invariants.
 - `apps/core/src/domain/inspectors/`: runtime inspectors; certificate-store operations live in `certs.rs`.
 - `apps/core/src/domain/inspectors/environment.rs`: read-only inventory of persistent machine and current-user environment variables.
+- `apps/core/src/domain/inspectors/system_features.rs`: inventory and reconciliation of Windows Optional Features and Capabilities.
 - `apps/core/src/engine/calibrate/`: read-only capture of the root-store SHA-256 baseline.
 - `apps/core/src/logger.rs`: component log files under `logs/` and stdout tracing.
+- `libs/windows-features/`: safe abstraction over native DISM API (`DismApi.dll`) for Windows features and capabilities.
 - `config/default.ncl`: imports the per-inspector and per-policy Nickel files.
 - `config/inspectors/`: inspector settings. Hardware, identity and system-feature subtrees compose their child configs.
 - `config/policies/`: policy settings grouped by domain.
 - `config/inspectors/certs/third_party/`: explicitly enumerated external certificate inputs.
-
-The non-certificate Nickel files currently provide configuration structure; they do not imply that the corresponding Rust inspectors are implemented or enforcing those values.
 
 ## Certificate Import Contract
 

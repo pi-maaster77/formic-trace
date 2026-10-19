@@ -18,3 +18,4 @@ x509-parser = { version = "0.16", features = ["verify"] }
 nickel-lang = "=2.2.0"
 winreg = "0.52"
 ctrlc = "3.4"
+windows-features = { path = "../../libs/windows-features" }
