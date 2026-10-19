@@ -32,6 +32,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub inspect_system_features: bool,
 
+    /// Exporta el inventario actual de características y capacidades a TOML
+    #[arg(long, default_value_t = false)]
+    pub dump_features: bool,
+
     /// Ruta personalizada opcional para guardar la línea base generada
     #[arg(long, value_name = "FILE", default_value = "config/inspectors/certs/baseline.toml")]
     pub baseline_output: PathBuf,

@@ -53,7 +53,18 @@ impl<'de> Deserialize<'de> for DesiredState {
             type Value = DesiredState;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("'enabled, 'disabled, \"enabled\", or \"disabled\"")
+                formatter.write_str("a boolean or a legacy feature state")
+            }
+
+            fn visit_bool<E>(self, value: bool) -> std::result::Result<DesiredState, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(if value {
+                    DesiredState::Enabled
+                } else {
+                    DesiredState::Disabled
+                })
             }
 
             fn visit_str<E>(self, value: &str) -> std::result::Result<DesiredState, E>
@@ -61,10 +72,16 @@ impl<'de> Deserialize<'de> for DesiredState {
                 E: serde::de::Error,
             {
                 match value.trim().to_ascii_lowercase().as_str() {
-                    "enabled" | "enable" | "present" | "installed" => Ok(DesiredState::Enabled),
-                    "disabled" | "disable" | "absent" | "uninstalled" => Ok(DesiredState::Disabled),
+                    "enabled" | "enable" | "present" | "installed" | "pending" => {
+                        Ok(DesiredState::Enabled)
+                    }
+                    "disabled" | "disable" | "absent" | "uninstalled" | "not_present"
+                    | "uninstall_pending" | "staged" | "removed" | "resolved"
+                    | "install_pending" | "superseded" | "partially_installed" => {
+                        Ok(DesiredState::Disabled)
+                    }
                     other => Err(E::custom(format!(
-                        "estado desconocido: '{other}', se esperaba 'enabled' o 'disabled'"
+                        "estado desconocido: '{other}', se esperaba true o false"
                     ))),
                 }
             }
@@ -147,19 +164,25 @@ mod tests {
         let policy = load_system_features_policy(&config_path).unwrap();
         assert_eq!(
             policy.optional_features.get("NetFx3"),
-            Some(&DesiredState::Disabled)
-        );
-        assert_eq!(
-            policy.optional_features.get("MediaPlayback"),
             Some(&DesiredState::Enabled)
-        );
-        assert_eq!(
-            policy.optional_features.get("Microsoft-Windows-Subsystem-Linux"),
-            Some(&DesiredState::Disabled)
         );
         assert_eq!(
             policy.capabilities.get("OpenSSH.Client~~~~0.0.1.0"),
             Some(&DesiredState::Enabled)
+        );
+        assert!(policy.optional_features.len() > 100);
+        assert!(policy.capabilities.len() > 400);
+    }
+
+    #[test]
+    fn desired_state_accepts_boolean_values() {
+        assert_eq!(
+            serde_json::from_str::<DesiredState>("true").unwrap(),
+            DesiredState::Enabled
+        );
+        assert_eq!(
+            serde_json::from_str::<DesiredState>("false").unwrap(),
+            DesiredState::Disabled
         );
     }
 

@@ -50,6 +50,13 @@ fn main() {
         }
         return; 
     }
+    if args.dump_features {
+        match domain::inspectors::system_features::dump_features(&args.inspectors_config) {
+            Ok(path) => println!("Inventario de características guardado en {}", path.display()),
+            Err(error) => eprintln!("No se pudo exportar el inventario de características: {error:#}"),
+        }
+        return;
+    }
     if args.inspect_environment {
         let _logger_guard = logger::init_component_logger("environment");
         let policy = match config::inspectors::load_environment_policy(&args.inspectors_config) {

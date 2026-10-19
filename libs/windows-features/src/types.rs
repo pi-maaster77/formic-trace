@@ -24,10 +24,8 @@ pub enum FeatureState {
     UninstallPending,
     /// Staged in the component store but not active.
     Staged,
-    /// Resolved.
-    Resolved,
-    /// Pending action.
-    Pending,
+    /// Metadata is present, but the feature is not installed.
+    Removed,
     /// Fully installed and active.
     Installed,
     /// Installation is pending (requires reboot or download).
@@ -51,18 +49,17 @@ impl FeatureState {
         matches!(self, Self::Installed | Self::InstallPending)
     }
 
-    /// Converts from raw DISM C enum value (`DismPackageFeatureState`).
+    /// Converts from raw DISM `DismPackageFeatureState` values.
     pub fn from_u32(raw: u32) -> Self {
         match raw {
             0 => Self::NotPresent,
             1 => Self::UninstallPending,
             2 => Self::Staged,
-            3 => Self::Resolved,
-            4 => Self::Pending,
-            5 => Self::Installed,
-            6 => Self::InstallPending,
-            7 => Self::Superseded,
-            8 => Self::PartiallyInstalled,
+            3 => Self::Removed,
+            4 => Self::Installed,
+            5 => Self::InstallPending,
+            6 => Self::Superseded,
+            7 => Self::PartiallyInstalled,
             other => Self::Unknown(other),
         }
     }
@@ -73,12 +70,11 @@ impl FeatureState {
             Self::NotPresent => 0,
             Self::UninstallPending => 1,
             Self::Staged => 2,
-            Self::Resolved => 3,
-            Self::Pending => 4,
-            Self::Installed => 5,
-            Self::InstallPending => 6,
-            Self::Superseded => 7,
-            Self::PartiallyInstalled => 8,
+            Self::Removed => 3,
+            Self::Installed => 4,
+            Self::InstallPending => 5,
+            Self::Superseded => 6,
+            Self::PartiallyInstalled => 7,
             Self::Unknown(val) => *val,
         }
     }
@@ -139,8 +135,10 @@ mod tests {
     #[test]
     fn test_feature_state_conversions() {
         assert_eq!(FeatureState::from_u32(0), FeatureState::NotPresent);
-        assert_eq!(FeatureState::from_u32(5), FeatureState::Installed);
-        assert_eq!(FeatureState::from_u32(6), FeatureState::InstallPending);
+        assert_eq!(FeatureState::from_u32(3), FeatureState::Removed);
+        assert_eq!(FeatureState::from_u32(4), FeatureState::Installed);
+        assert_eq!(FeatureState::from_u32(5), FeatureState::InstallPending);
+        assert_eq!(FeatureState::from_u32(7), FeatureState::PartiallyInstalled);
         assert_eq!(FeatureState::from_u32(99), FeatureState::Unknown(99));
 
         assert!(FeatureState::Installed.is_installed());

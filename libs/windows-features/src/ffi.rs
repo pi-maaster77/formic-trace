@@ -96,11 +96,13 @@ pub type DismGetFeatureInfoFn = unsafe extern "system" fn(
 pub type DismEnableFeatureFn = unsafe extern "system" fn(
     session: DismSessionHandle,
     feature_name: *const u16,
-    package_name: *const u16,
-    enable_all: i32,
+    identifier: *const u16,
+    package_identifier: u32,
     limit_access: i32,
     source_paths: *const *const u16,
     source_path_count: u32,
+    enable_all: i32,
+    cancel_event: *mut c_void,
     progress: *mut c_void,
     user_data: *mut c_void,
 ) -> i32;
@@ -110,6 +112,7 @@ pub type DismDisableFeatureFn = unsafe extern "system" fn(
     feature_name: *const u16,
     package_name: *const u16,
     remove_payload: i32,
+    cancel_event: *mut c_void,
     progress: *mut c_void,
     user_data: *mut c_void,
 ) -> i32;
@@ -132,6 +135,7 @@ pub type DismAddCapabilityFn = unsafe extern "system" fn(
     limit_access: i32,
     source_paths: *const *const u16,
     source_path_count: u32,
+    cancel_event: *mut c_void,
     progress: *mut c_void,
     user_data: *mut c_void,
 ) -> i32;
@@ -139,6 +143,7 @@ pub type DismAddCapabilityFn = unsafe extern "system" fn(
 pub type DismRemoveCapabilityFn = unsafe extern "system" fn(
     session: DismSessionHandle,
     name: *const u16,
+    cancel_event: *mut c_void,
     progress: *mut c_void,
     user_data: *mut c_void,
 ) -> i32;

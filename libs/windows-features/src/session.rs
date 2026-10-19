@@ -44,9 +44,7 @@ impl DismLibrary {
 
         let module = RawDismModule::load()?;
         unsafe {
-            eprintln!("[DISM-DIAG] DismInitialize enter");
             let hr = (module.vtable.initialize)(0, ptr::null(), ptr::null());
-            eprintln!("[DISM-DIAG] DismInitialize returned {hr:#010x}");
             check_hresult(hr, "DismInitialize")?;
         }
 
@@ -78,14 +76,12 @@ impl DismSession {
         let online_image_wide = to_wide(DISM_ONLINE_IMAGE);
 
         unsafe {
-            eprintln!("[DISM-DIAG] DismOpenSession enter");
             let hr = (lib.module.vtable.open_session)(
                 online_image_wide.as_ptr(),
                 ptr::null(),
                 ptr::null(),
                 &mut handle,
             );
-            eprintln!("[DISM-DIAG] DismOpenSession returned {hr:#010x}");
             check_hresult(hr, "DismOpenSession (Online)")?;
         }
 
@@ -117,7 +113,6 @@ impl DismSession {
         let mut count: u32 = 0;
 
         unsafe {
-            eprintln!("[DISM-DIAG] DismGetFeatures enter");
             let hr = (self.lib.module.vtable.get_features)(
                 self.handle,
                 ptr::null(),
@@ -126,7 +121,6 @@ impl DismSession {
                 &mut count,
             );
             eprintln!(
-                "[DISM-DIAG] DismGetFeatures returned {hr:#010x}, count={count}, ptr={raw_features:p}"
             );
             check_hresult(hr, "DismGetFeatures")?;
 
@@ -137,23 +131,17 @@ impl DismSession {
             let slice = std::slice::from_raw_parts(raw_features, count as usize);
             let mut result = Vec::with_capacity(count as usize);
 
-            for (index, item) in slice.iter().enumerate() {
+            for item in slice {
                 let name_ptr = ptr::addr_of!(item.feature_name).read_unaligned();
                 let state_raw = ptr::addr_of!(item.state).read_unaligned();
-                eprintln!(
-                    "[DISM-DIAG] feature[{index}] name_ptr={name_ptr:p}, state={state_raw}"
-                );
                 let name = wide_to_string(name_ptr);
-                eprintln!("[DISM-DIAG] feature[{index}] name decoded");
                 result.push(Feature {
                     name,
                     state: FeatureState::from_u32(state_raw),
                 });
             }
 
-            eprintln!("[DISM-DIAG] DismDelete features enter");
             let _ = (self.lib.module.vtable.delete)(raw_features as *mut c_void);
-            eprintln!("[DISM-DIAG] DismDelete features returned");
             Ok(result)
         }
     }
@@ -204,19 +192,19 @@ impl DismSession {
         let name_wide = to_wide(feature_name);
 
         unsafe {
-            eprintln!("[DISM-DIAG] DismEnableFeature enter: {feature_name}");
             let hr = (self.lib.module.vtable.enable_feature)(
                 self.handle,
                 name_wide.as_ptr(),
                 ptr::null(),
-                if enable_all_dependencies { 1 } else { 0 },
+                0,
                 0,
                 ptr::null(),
                 0,
+                if enable_all_dependencies { 1 } else { 0 },
+                ptr::null_mut(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             );
-            eprintln!("[DISM-DIAG] DismEnableFeature returned {hr:#010x}");
             check_hresult(hr, &format!("DismEnableFeature ({feature_name})"))
         }
     }
@@ -233,6 +221,7 @@ impl DismSession {
                 if remove_payload { 1 } else { 0 },
                 ptr::null_mut(),
                 ptr::null_mut(),
+                ptr::null_mut(),
             );
             check_hresult(hr, &format!("DismDisableFeature ({feature_name})"))
         }
@@ -244,12 +233,8 @@ impl DismSession {
         let mut count: u32 = 0;
 
         unsafe {
-            eprintln!("[DISM-DIAG] DismGetCapabilities enter");
             let hr =
                 (self.lib.module.vtable.get_capabilities)(self.handle, &mut raw_caps, &mut count);
-            eprintln!(
-                "[DISM-DIAG] DismGetCapabilities returned {hr:#010x}, count={count}, ptr={raw_caps:p}"
-            );
             check_hresult(hr, "DismGetCapabilities")?;
 
             if raw_caps.is_null() || count == 0 {
@@ -325,6 +310,7 @@ impl DismSession {
                 0,
                 ptr::null_mut(),
                 ptr::null_mut(),
+                ptr::null_mut(),
             );
             check_hresult(hr, &format!("DismAddCapability ({capability_name})"))
         }
@@ -338,6 +324,7 @@ impl DismSession {
             let hr = (self.lib.module.vtable.remove_capability)(
                 self.handle,
                 name_wide.as_ptr(),
+                ptr::null_mut(),
                 ptr::null_mut(),
                 ptr::null_mut(),
             );
