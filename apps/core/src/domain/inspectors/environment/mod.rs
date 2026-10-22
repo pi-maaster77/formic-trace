@@ -4,7 +4,7 @@
  * Project: inspectors                                                         *
  * Author: pi-maaster77                                                        *
  * Created Date: Sa/10/2026 03:45:28                                           *
- * Last Modified: Sat Oct 17 2026                                              *
+ * Last Modified: Thu Oct 22 2026                                              *
  *                                                                             *
  * License: GNU General Public License v3.0 (GPLv3)                            *
  * This program is free software: you can redistribute it and/or modify        *
@@ -28,7 +28,6 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::Duration;
 use tracing::{error, info};
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 use winreg::RegKey;

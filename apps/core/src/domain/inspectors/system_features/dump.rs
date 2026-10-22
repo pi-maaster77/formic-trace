@@ -1,11 +1,24 @@
+/*
+ * File: dump.rs                                                               *
+ * Path: b:\Proyectos\rust\Formic\apps\core\src\domain\inspectors\system_features\dump.rs *
+ * Project: system_features                                                    *
+ * Author: pi-maaster77                                                        *
+ * Created Date: Mo/10/2026 01:20:14                                           *
+ * Last Modified: Thu Oct 22 2026                                              *
+ *                                                                             *
+ * License: GNU General Public License v3.0 (GPLv3)                            *
+ * This program is free software: you can redistribute it and/or modify        *
+ * it under the terms of the GNU General Public License as published by        *
+ * the Free Software Foundation, either version 3 of the License, or           *
+ * (at your option) any later version.                                         *
+ */
+
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use windows_features::DismSession;
-
-use super::snapshot::SystemFeaturesSnapshot;
 
 #[derive(Serialize)]
 struct FeatureInventory {
