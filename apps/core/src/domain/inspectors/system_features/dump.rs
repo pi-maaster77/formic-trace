@@ -20,6 +20,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use windows_features::DismSession;
 
+use super::plan::strip_capability_version;
+
 #[derive(Serialize)]
 struct FeatureInventory {
     optional_features: BTreeMap<String, bool>,
@@ -40,7 +42,12 @@ pub fn dump_features(config_path: &Path) -> Result<PathBuf> {
         capabilities: snapshot
             .capabilities
             .into_iter()
-            .map(|(name, state)| (name, state.is_enabled_or_pending()))
+            .map(|(name, state)| {
+                (
+                    strip_capability_version(&name),
+                    state.is_enabled_or_pending(),
+                )
+            })
             .collect(),
     };
     let contents = toml::to_string_pretty(&inventory)
@@ -95,4 +102,3 @@ mod tests {
         );
     }
 }
-

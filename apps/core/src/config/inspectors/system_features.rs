@@ -75,11 +75,18 @@ impl<'de> Deserialize<'de> for DesiredState {
                     "enabled" | "enable" | "present" | "installed" | "pending" => {
                         Ok(DesiredState::Enabled)
                     }
-                    "disabled" | "disable" | "absent" | "uninstalled" | "not_present"
-                    | "uninstall_pending" | "staged" | "removed" | "resolved"
-                    | "install_pending" | "superseded" | "partially_installed" => {
-                        Ok(DesiredState::Disabled)
-                    }
+                    "disabled"
+                    | "disable"
+                    | "absent"
+                    | "uninstalled"
+                    | "not_present"
+                    | "uninstall_pending"
+                    | "staged"
+                    | "removed"
+                    | "resolved"
+                    | "install_pending"
+                    | "superseded"
+                    | "partially_installed" => Ok(DesiredState::Disabled),
                     other => Err(E::custom(format!(
                         "estado desconocido: '{other}', se esperaba true o false"
                     ))),
@@ -107,7 +114,7 @@ pub struct SystemFeaturesPolicy {
     /// Desired state for Windows Optional Features (e.g. `Microsoft-Windows-Subsystem-Linux`, `NetFx3`).
     #[serde(default)]
     pub optional_features: BTreeMap<String, DesiredState>,
-    /// Desired state for Windows Capabilities (e.g. `OpenSSH.Client~~~~0.0.1.0`, `OpenSSH.Server~~~~0.0.1.0`).
+    /// Desired state for Windows Capabilities (e.g. `OpenSSH.Client`, `Browser.InternetExplorer`).
     #[serde(default)]
     pub capabilities: BTreeMap<String, DesiredState>,
 }
@@ -131,7 +138,10 @@ pub fn load_system_features_policy(config_path: &Path) -> Result<SystemFeaturesP
         bail!("versión de esquema no soportada: {}", root.schema_version);
     }
 
-    validate_items("características opcionales", &root.inspectors.system_features.optional_features)?;
+    validate_items(
+        "características opcionales",
+        &root.inspectors.system_features.optional_features,
+    )?;
     validate_items("capacidades", &root.inspectors.system_features.capabilities)?;
 
     Ok(root.inspectors.system_features)
@@ -167,7 +177,7 @@ mod tests {
             Some(&DesiredState::Enabled)
         );
         assert_eq!(
-            policy.capabilities.get("OpenSSH.Client~~~~0.0.1.0"),
+            policy.capabilities.get("OpenSSH.Client"),
             Some(&DesiredState::Enabled)
         );
         assert!(policy.optional_features.len() > 100);
@@ -189,7 +199,10 @@ mod tests {
     #[test]
     fn validates_feature_names() {
         let valid = BTreeMap::from([
-            ("Microsoft-Windows-Subsystem-Linux".to_string(), DesiredState::Enabled),
+            (
+                "Microsoft-Windows-Subsystem-Linux".to_string(),
+                DesiredState::Enabled,
+            ),
             ("NetFx3".to_string(), DesiredState::Enabled),
         ]);
         assert!(validate_items("características opcionales", &valid).is_ok());
@@ -207,4 +220,3 @@ mod tests {
         assert!(validate_items("características opcionales", &duplicate).is_err());
     }
 }
-

@@ -13,9 +13,9 @@
  * (at your option) any later version.                                         *
  */
 
+use chrono::Utc;
 use std::fs;
 use std::path::PathBuf;
-use chrono::Utc;
 use tracing::Metadata;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::{
@@ -54,11 +54,7 @@ pub fn init_component_logger(component_name: &str) -> ComponentLoggerGuard {
                 .with_ansi(false)
                 .with_target(false),
         )
-        .with(
-            fmt::layer()
-                .with_writer(std::io::stdout)
-                .with_target(true),
-        )
+        .with(fmt::layer().with_writer(std::io::stdout).with_target(true))
         .try_init();
 
     ComponentLoggerGuard {
@@ -73,6 +69,13 @@ pub fn init_runtime_logger() -> ComponentLoggerGuard {
     let (environment_current, environment_timestamp, environment_workers, environment_current_path) =
         create_component_writers("environment");
     worker_guards.extend(environment_workers);
+    let (
+        system_features_current,
+        system_features_timestamp,
+        system_features_workers,
+        system_features_current_path,
+    ) = create_component_writers("system_features");
+    worker_guards.extend(system_features_workers);
 
     let _ = tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
@@ -95,25 +98,47 @@ pub fn init_runtime_logger() -> ComponentLoggerGuard {
                 .with_writer(environment_current)
                 .with_ansi(false)
                 .with_target(false)
-                .with_filter(filter_fn(|metadata| is_component_target(metadata, "environment"))),
+                .with_filter(filter_fn(|metadata| {
+                    is_component_target(metadata, "environment")
+                })),
         )
         .with(
             fmt::layer()
                 .with_writer(environment_timestamp)
                 .with_ansi(false)
                 .with_target(false)
-                .with_filter(filter_fn(|metadata| is_component_target(metadata, "environment"))),
+                .with_filter(filter_fn(|metadata| {
+                    is_component_target(metadata, "environment")
+                })),
         )
         .with(
             fmt::layer()
-                .with_writer(std::io::stdout)
-                .with_target(true),
+                .with_writer(system_features_current)
+                .with_ansi(false)
+                .with_target(false)
+                .with_filter(filter_fn(|metadata| {
+                    is_component_target(metadata, "system_features")
+                })),
         )
+        .with(
+            fmt::layer()
+                .with_writer(system_features_timestamp)
+                .with_ansi(false)
+                .with_target(false)
+                .with_filter(filter_fn(|metadata| {
+                    is_component_target(metadata, "system_features")
+                })),
+        )
+        .with(fmt::layer().with_writer(std::io::stdout).with_target(true))
         .try_init();
 
     ComponentLoggerGuard {
         worker_guards,
-        current_file_paths: vec![certs_current_path, environment_current_path],
+        current_file_paths: vec![
+            certs_current_path,
+            environment_current_path,
+            system_features_current_path,
+        ],
     }
 }
 
@@ -149,7 +174,8 @@ fn create_component_writers(
         &dir_path,
         format!("{}.log", timestamp_str),
     );
-    let (current_writer, current_worker_guard) = tracing_appender::non_blocking(current_file_appender);
+    let (current_writer, current_worker_guard) =
+        tracing_appender::non_blocking(current_file_appender);
     let (timestamp_writer, timestamp_worker_guard) =
         tracing_appender::non_blocking(timestamp_file_appender);
 
@@ -169,10 +195,27 @@ mod tests {
     fn routes_inspector_targets_to_their_own_component_logs() {
         let certs_target = "formic_core::domain::inspectors::certs::store";
         let environment_target = "formic_core::domain::inspectors::environment";
+        let system_features_target = "formic_core::domain::inspectors::system_features";
 
         assert!(target_matches_component(certs_target, "certs"));
         assert!(!target_matches_component(certs_target, "environment"));
+        assert!(!target_matches_component(certs_target, "system_features"));
+
         assert!(target_matches_component(environment_target, "environment"));
         assert!(!target_matches_component(environment_target, "certs"));
+        assert!(!target_matches_component(
+            environment_target,
+            "system_features"
+        ));
+
+        assert!(target_matches_component(
+            system_features_target,
+            "system_features"
+        ));
+        assert!(!target_matches_component(system_features_target, "certs"));
+        assert!(!target_matches_component(
+            system_features_target,
+            "environment"
+        ));
     }
 }
