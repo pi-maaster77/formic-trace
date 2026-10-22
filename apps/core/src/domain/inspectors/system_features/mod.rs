@@ -13,8 +13,6 @@
  * (at your option) any later version.                                         *
  */
 
-
-
 mod dump;
 mod plan;
 mod snapshot;
@@ -35,7 +33,10 @@ use windows_features::{Capability, DismError, DismSession, Feature};
 
 use crate::config::inspectors::{FeatureDesiredState, SystemFeaturesPolicy};
 
-use plan::{find_desired_state, find_state_case_insensitive, plan_changed_reconciliation};
+use plan::{
+    find_desired_state, find_state_case_insensitive, plan_changed_reconciliation,
+    render_progress_bar,
+};
 use snapshot::log_snapshot;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
@@ -104,70 +105,185 @@ fn reconcile_and_read(
         None => plan_reconciliation(&current, policy),
     };
 
+    let mut completed_actions: Vec<FeatureAction> = Vec::new();
+    let mut execution_error: Option<DismError> = None;
+
     for action in actions {
         match action {
-            FeatureAction::EnableFeature(name) => {
+            FeatureAction::EnableFeature(ref name) => {
                 warn!(feature = %name, action = "enable", "La característica contradice la política de Nickel; se activa.");
-                match session.enable_feature(&name, true) {
-                    Ok(()) => {
-                        info!(feature = %name, restart_required = false, "Característica habilitada; DISM no solicita reinicio.")
-                    }
-                    Err(DismError::RebootRequired) => {
-                        info!(feature = %name, restart_required = true, "Característica habilitada; requiere reiniciar el equipo.")
-                    }
-                    Err(error) => {
-                        error!(feature = %name, error = %error, "Fallo al habilitar la característica opcional.")
-                    }
-                }
             }
-            FeatureAction::DisableFeature(name) => {
+            FeatureAction::DisableFeature(ref name) => {
                 warn!(feature = %name, action = "disable", "La característica contradice la política de Nickel; se desactiva.");
-                match session.disable_feature(&name, false) {
-                    Ok(()) => {
-                        info!(feature = %name, restart_required = false, "Característica deshabilitada; DISM no solicita reinicio.")
-                    }
-                    Err(DismError::RebootRequired) => {
-                        info!(feature = %name, restart_required = true, "Característica deshabilitada; requiere reiniciar el equipo.")
-                    }
-                    Err(error) => {
-                        error!(feature = %name, error = %error, "Fallo al deshabilitar la característica opcional.")
-                    }
-                }
             }
-            FeatureAction::AddCapability(name) => {
+            FeatureAction::AddCapability(ref name) => {
                 warn!(capability = %name, action = "add", "La capacidad contradice la política de Nickel; se instala.");
-                match session.add_capability(&name, false) {
-                    Ok(()) => {
-                        info!(capability = %name, restart_required = false, "Capacidad instalada; DISM no solicita reinicio.")
-                    }
-                    Err(DismError::RebootRequired) => {
-                        info!(capability = %name, restart_required = true, "Capacidad agregada; requiere reiniciar el equipo.")
-                    }
-                    Err(error) => {
-                        error!(capability = %name, error = %error, "Fallo al agregar la capacidad.")
-                    }
-                }
             }
-            FeatureAction::RemoveCapability(name) => {
+            FeatureAction::RemoveCapability(ref name) => {
                 warn!(capability = %name, action = "remove", "La capacidad contradice la política de Nickel; se quita.");
-                match session.remove_capability(&name) {
-                    Ok(()) => {
-                        info!(capability = %name, restart_required = false, "Capacidad removida; DISM no solicita reinicio.")
-                    }
-                    Err(DismError::RebootRequired) => {
-                        info!(capability = %name, restart_required = true, "Capacidad removida; requiere reiniciar el equipo.")
-                    }
-                    Err(error) => {
-                        error!(capability = %name, error = %error, "Fallo al remover la capacidad.")
-                    }
-                }
             }
         }
+
+        match execute_action(&session, &action) {
+            Ok(reboot_required) => {
+                completed_actions.push(action);
+                if reboot_required {
+                    warn!(
+                        "La operación completada solicita reiniciar el equipo. Se pausan las operaciones restantes del lote para evitar acumulación de transacciones pendientes en Windows (CBS) que puedan congelar el arranque o el entorno gráfico."
+                    );
+                    break;
+                }
+            }
+            Err(error) => {
+                execution_error = Some(error);
+                break;
+            }
+        }
+    }
+
+    if let Some(error) = execution_error {
+        error!(
+            error = %error,
+            "Fallo durante la reconciliación. Iniciando rollback automático para restaurar el sistema..."
+        );
+        rollback_actions(&session, completed_actions);
+        return Err(error)
+            .context("falló la aplicación de características del sistema; se ejecutó rollback");
     }
 
     let updated = read_snapshot_from_session(&session)?;
     log_changes(&current, &updated, policy);
     Ok(updated)
+}
+
+fn execute_action(
+    session: &DismSession,
+    action: &FeatureAction,
+) -> std::result::Result<bool, DismError> {
+    let (item_type, name, action_label) = match action {
+        FeatureAction::EnableFeature(name) => ("Característica opcional", name.as_str(), "enable"),
+        FeatureAction::DisableFeature(name) => {
+            ("Característica opcional", name.as_str(), "disable")
+        }
+        FeatureAction::AddCapability(name) => ("Capacidad de Windows", name.as_str(), "add"),
+        FeatureAction::RemoveCapability(name) => ("Capacidad de Windows", name.as_str(), "remove"),
+    };
+
+    let mut last_percent: Option<u32> = None;
+    let mut progress_cb = |current: u32, total: u32| {
+        let percent = if total > 0 {
+            (current.min(total) * 100) / total
+        } else {
+            0
+        };
+
+        let should_log = match last_percent {
+            None => true,
+            Some(last) => (percent >= last + 20) || (percent == 100 && last < 100),
+        };
+
+        if should_log {
+            last_percent = Some(percent);
+            let bar = render_progress_bar(percent);
+            info!(
+                item_type,
+                name,
+                action = action_label,
+                progress = %bar,
+                percent,
+                "Descarga / operación en progreso."
+            );
+        }
+    };
+
+    let res = match action {
+        FeatureAction::EnableFeature(name) => {
+            session.enable_feature_with_progress(name, true, Some(&mut progress_cb))
+        }
+        FeatureAction::DisableFeature(name) => {
+            session.disable_feature_with_progress(name, false, Some(&mut progress_cb))
+        }
+        FeatureAction::AddCapability(name) => {
+            session.add_capability_with_progress(name, false, Some(&mut progress_cb))
+        }
+        FeatureAction::RemoveCapability(name) => {
+            session.remove_capability_with_progress(name, Some(&mut progress_cb))
+        }
+    };
+
+    match res {
+        Ok(()) => {
+            let bar = render_progress_bar(100);
+            info!(
+                item_type,
+                name,
+                action = action_label,
+                progress = %bar,
+                restart_required = false,
+                "Descarga y aplicación completada exitosamente; DISM no solicita reinicio."
+            );
+            Ok(false)
+        }
+        Err(DismError::RebootRequired) => {
+            let bar = render_progress_bar(100);
+            info!(
+                item_type,
+                name,
+                action = action_label,
+                progress = %bar,
+                restart_required = true,
+                "Descarga y aplicación completada; requiere reiniciar el equipo."
+            );
+            Ok(true)
+        }
+        Err(error) => {
+            error!(
+                item_type,
+                name,
+                action = action_label,
+                error = %error,
+                "Fallo al ejecutar la operación."
+            );
+            Err(error)
+        }
+    }
+}
+
+fn rollback_actions(session: &DismSession, completed: Vec<FeatureAction>) {
+    if completed.is_empty() {
+        return;
+    }
+
+    warn!(
+        completed_count = completed.len(),
+        "Iniciando ROLLBACK automático de las características aplicadas en esta ejecución..."
+    );
+
+    for action in completed.into_iter().rev() {
+        let inverse = action.inverse();
+        warn!(
+            original_action = ?action,
+            rollback_action = ?inverse,
+            "Aplicando rollback..."
+        );
+        match execute_action(session, &inverse) {
+            Ok(_) => {
+                info!(
+                    rollback_action = ?inverse,
+                    "Rollback de la acción completado exitosamente."
+                );
+            }
+            Err(error) => {
+                error!(
+                    rollback_action = ?inverse,
+                    error = %error,
+                    "Fallo al ejecutar el rollback para esta acción; continuando con las restantes."
+                );
+            }
+        }
+    }
+
+    info!("Proceso de ROLLBACK finalizado. El sistema fue restaurado al estado previo.");
 }
 
 fn read_snapshot_from_session(session: &DismSession) -> Result<SystemFeaturesSnapshot> {

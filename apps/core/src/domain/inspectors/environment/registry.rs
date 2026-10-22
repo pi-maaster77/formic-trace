@@ -13,10 +13,9 @@
  * (at your option) any later version.                                         *
  */
 
-
-
 use super::diff::hash_value;
 use super::plan::{find_variable, plan_reconciliation, ReconciliationAction};
+use crate::config::inspectors::EnvironmentPolicy;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -45,17 +44,25 @@ pub(super) fn reconcile_and_read(
     scope: &str,
     root: &RegKey,
     subkey: &str,
+    policy: &EnvironmentPolicy,
     allowed: &BTreeMap<String, String>,
+    delete_names: &[String],
 ) -> Result<BTreeMap<String, String>> {
     let key = root
         .open_subkey_with_flags(subkey, KEY_READ | KEY_SET_VALUE)
         .with_context(|| format!("se requieren permisos de escritura para el entorno {scope}"))?;
     let current = read_scope_from_key(scope, &key)?;
 
-    for action in plan_reconciliation(&current, allowed) {
+    for action in plan_reconciliation(
+        &current,
+        allowed,
+        delete_names,
+        policy.mode,
+        policy.allow_destructive,
+    ) {
         match action {
             ReconciliationAction::Delete(name) => {
-                warn!(scope, variable = %name, action = "delete", "Variable no declarada en Nickel; se elimina.");
+                warn!(scope, variable = %name, action = "delete", "Variable eliminada por la política de entorno.");
                 key.delete_value(&name).with_context(|| {
                     format!("no se pudo eliminar la variable {name} de {scope}")
                 })?;

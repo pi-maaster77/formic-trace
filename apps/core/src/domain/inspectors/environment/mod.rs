@@ -17,6 +17,7 @@
 //! Undeclared values are deleted, declared values are restored, and logs contain hashes only.
 
 mod diff;
+mod dump;
 mod plan;
 mod registry;
 
@@ -33,6 +34,7 @@ use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 use winreg::RegKey;
 
 use diff::log_snapshot;
+pub use dump::dump_environment;
 use registry::{reconcile_and_read, POLL_INTERVAL, SYSTEM_ENVIRONMENT_KEY, USER_ENVIRONMENT_KEY};
 
 /// Starts the environment monitor and stops it when Ctrl+C is received.
@@ -53,14 +55,29 @@ pub fn inspect(policy: &EnvironmentPolicy) -> Result<()> {
 pub fn inspect_until_stopped(policy: &EnvironmentPolicy, running: &AtomicBool) -> Result<()> {
     let machine = RegKey::predef(HKEY_LOCAL_MACHINE);
     let user = RegKey::predef(HKEY_CURRENT_USER);
-    let mut system_snapshot =
-        reconcile_and_read("system", &machine, SYSTEM_ENVIRONMENT_KEY, &policy.system)?;
-    let mut user_snapshot = reconcile_and_read("user", &user, USER_ENVIRONMENT_KEY, &policy.user)?;
+    let mut system_snapshot = reconcile_and_read(
+        "system",
+        &machine,
+        SYSTEM_ENVIRONMENT_KEY,
+        policy,
+        &policy.system,
+        &policy.delete_system,
+    )?;
+    let mut user_snapshot = reconcile_and_read(
+        "user",
+        &user,
+        USER_ENVIRONMENT_KEY,
+        policy,
+        &policy.user,
+        &policy.delete_user,
+    )?;
 
     log_snapshot("system", &system_snapshot);
     log_snapshot("user", &user_snapshot);
     info!(
         poll_interval_seconds = POLL_INTERVAL.as_secs(),
+        mode = ?policy.mode,
+        allow_destructive = policy.allow_destructive,
         "Monitoreo de entorno activo; Ctrl+C para detener."
     );
 
@@ -74,14 +91,18 @@ pub fn inspect_until_stopped(policy: &EnvironmentPolicy, running: &AtomicBool) -
             "system",
             &machine,
             SYSTEM_ENVIRONMENT_KEY,
+            policy,
             &policy.system,
+            &policy.delete_system,
             &mut system_snapshot,
         );
         refresh_scope(
             "user",
             &user,
             USER_ENVIRONMENT_KEY,
+            policy,
             &policy.user,
+            &policy.delete_user,
             &mut user_snapshot,
         );
     }
@@ -94,10 +115,12 @@ fn refresh_scope(
     scope: &str,
     root: &RegKey,
     subkey: &str,
+    policy: &EnvironmentPolicy,
     allowed: &BTreeMap<String, String>,
+    delete_names: &[String],
     previous: &mut BTreeMap<String, String>,
 ) {
-    match reconcile_and_read(scope, root, subkey, allowed) {
+    match reconcile_and_read(scope, root, subkey, policy, allowed, delete_names) {
         Ok(current) => {
             diff::log_changes(scope, previous, &current);
             *previous = current;

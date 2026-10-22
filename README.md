@@ -70,21 +70,27 @@ Si Nickel no está disponible o la configuración no valida, el inspector regist
 
 ## Variables de entorno
 
-La política está en `config/inspectors/environment/default.ncl`. Declara valores exactos bajo `user` para el usuario actual o bajo `system` para las variables persistentes de Windows. Por ejemplo, la prueba incluida declara `PRUEBA = "ESTOESUNAPRUEBA"` en `user`.
+La política está en `config/inspectors/environment/default.ncl`. Declara valores bajo `user` para el usuario actual o bajo `system` para las variables persistentes de Windows. Para exportar el inventario de ambos ámbitos a `config/inspectors/environment/snapshot.toml`, ejecuta `cargo run -p formic-core -- --dump-environment`. El comando solo lee el Registro y sobrescribe ese archivo; el TOML puede contener secretos y debe protegerse como tal. La ruta se cambia con `--environment-output FILE`.
+
+Modos disponibles: `additive` agrega variables ausentes sin alterar valores existentes; `direct` asigna los valores declarados y, si se autoriza, elimina nombres no declarados; `subtractive` solo elimina nombres no declarados; `selective_delete` elimina solo los nombres enumerados en `delete_system` y `delete_user`. Toda eliminación está bloqueada salvo que también configures `allow_destructive = true`. El valor predeterminado es `additive` con borrado deshabilitado. Si omites estas opciones en una configuración existente, se aplican esos defaults seguros.
 
 Para agregar otra variable, añade su nombre y valor al mapa correspondiente:
 
 ```nickel
 {
+    mode = "additive",
+    allow_destructive = false,
     system = {},
     user = {
         PRUEBA = "ESTOESUNAPRUEBA",
         MI_VARIABLE = "mi valor",
     },
+    delete_system = [],
+    delete_user = [],
 }
 ```
 
-Ejecuta `cargo run -p formic-core -- --inspect-environment` para aplicarla y mantenerla. El monitor repone valores declarados que falten o cambien y elimina cualquier valor no declarado cada segundo. La lista es autoritativa: omitir una variable significa que será borrada. La lista de sistema necesita permisos elevados; el ámbito de usuario corresponde a la cuenta que ejecuta Formic. No guarda los valores en los logs, solo sus hashes. Las variables ya cargadas en procesos existentes no se actualizan automáticamente.
+Ejecuta `cargo run -p formic-core -- --inspect-environment` para aplicarla y mantenerla. `subtractive` y `selective_delete` no borran nada mientras `allow_destructive` sea `false`. La lista de sistema necesita permisos elevados; el ámbito de usuario corresponde a la cuenta que ejecuta Formic. No guarda los valores en los logs, solo sus hashes. El inventario TOML sí guarda los valores en texto claro. Las variables ya cargadas en procesos existentes no se actualizan automáticamente.
 
 ## Licencia
 

@@ -15,17 +15,17 @@
 
 #![forbid(unsafe_code)]
 
-mod logger;
-mod domain;
-mod engine;
 mod cli;
 mod config;
+mod domain;
+mod engine;
+mod logger;
 
+use crate::domain::inspectors::environment;
 use clap::Parser;
+use cli::Cli;
 use domain::inspectors::certs::CertsInspector;
 use engine::calibrate::inspectors::InspectorsCalibrator;
-use cli::Cli;
-use crate::domain::inspectors::environment;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -48,12 +48,24 @@ fn main() {
         if let Err(error) = inspectors_calibrator.run_calibration() {
             eprintln!("Falló la calibración de certificados: {error:#}");
         }
-        return; 
+        return;
     }
     if args.dump_features {
         match domain::inspectors::system_features::dump_features(&args.inspectors_config) {
-            Ok(path) => println!("Inventario de características guardado en {}", path.display()),
-            Err(error) => eprintln!("No se pudo exportar el inventario de características: {error:#}"),
+            Ok(path) => println!(
+                "Inventario de características guardado en {}",
+                path.display()
+            ),
+            Err(error) => {
+                eprintln!("No se pudo exportar el inventario de características: {error:#}")
+            }
+        }
+        return;
+    }
+    if args.dump_environment {
+        match domain::inspectors::environment::dump_environment(&args.environment_output) {
+            Ok(path) => println!("Inventario de entorno guardado en {}", path.display()),
+            Err(error) => eprintln!("No se pudo exportar el inventario de entorno: {error:#}"),
         }
         return;
     }
@@ -73,7 +85,8 @@ fn main() {
     }
     if args.inspect_system_features {
         let _logger_guard = logger::init_component_logger("system_features");
-        let policy = match config::inspectors::load_system_features_policy(&args.inspectors_config) {
+        let policy = match config::inspectors::load_system_features_policy(&args.inspectors_config)
+        {
             Ok(policy) => policy,
             Err(error) => {
                 tracing::error!(error = %error, "Se rechaza el monitoreo: la política Nickel de características del sistema no es válida.");
@@ -87,22 +100,27 @@ fn main() {
     }
 
     let _logger_guard = logger::init_runtime_logger();
-    let environment_policy = match config::inspectors::load_environment_policy(&args.inspectors_config) {
+    let environment_policy = match config::inspectors::load_environment_policy(
+        &args.inspectors_config,
+    ) {
         Ok(policy) => policy,
         Err(error) => {
-            eprintln!("Se rechaza el monitoreo: la política Nickel de entorno no es válida: {error:#}");
+            eprintln!(
+                "Se rechaza el monitoreo: la política Nickel de entorno no es válida: {error:#}"
+            );
             return;
         }
     };
-    let system_features_policy = match config::inspectors::load_system_features_policy(&args.inspectors_config) {
+    let system_features_policy = match config::inspectors::load_system_features_policy(
+        &args.inspectors_config,
+    ) {
         Ok(policy) => policy,
         Err(error) => {
             eprintln!("Se rechaza el monitoreo: la política Nickel de características del sistema no es válida: {error:#}");
             return;
         }
     };
-    let certificate_config =
-        config::inspectors::load_certificate_config(&args.inspectors_config);
+    let certificate_config = config::inspectors::load_certificate_config(&args.inspectors_config);
     let certs_inspector = CertsInspector::new("certs", certificate_config);
 
     let running = Arc::new(AtomicBool::new(true));

@@ -62,6 +62,13 @@ impl Drop for DismLibrary {
     }
 }
 
+unsafe extern "system" fn progress_trampoline(current: u32, total: u32, user_data: *mut c_void) {
+    if !user_data.is_null() {
+        let callback = &mut *(user_data as *mut &mut dyn FnMut(u32, u32));
+        callback(current, total);
+    }
+}
+
 /// A safe RAII wrapper around an active DISM servicing session.
 pub struct DismSession {
     handle: DismSessionHandle,
@@ -120,8 +127,7 @@ impl DismSession {
                 &mut raw_features,
                 &mut count,
             );
-            eprintln!(
-            );
+            eprintln!();
             check_hresult(hr, "DismGetFeatures")?;
 
             if raw_features.is_null() || count == 0 {
@@ -183,13 +189,21 @@ impl DismSession {
         }
     }
 
-    /// Enables a Windows Optional Feature.
-    pub fn enable_feature(
+    /// Enables a Windows Optional Feature with optional progress reporting.
+    pub fn enable_feature_with_progress(
         &self,
         feature_name: &str,
         enable_all_dependencies: bool,
+        mut progress: Option<&mut dyn FnMut(u32, u32)>,
     ) -> Result<()> {
         let name_wide = to_wide(feature_name);
+        let (progress_fn, user_data): (*mut c_void, *mut c_void) = match progress.as_mut() {
+            Some(cb) => (
+                progress_trampoline as *const () as *mut c_void,
+                (cb as *mut &mut dyn FnMut(u32, u32)) as *mut c_void,
+            ),
+            None => (ptr::null_mut(), ptr::null_mut()),
+        };
 
         unsafe {
             let hr = (self.lib.module.vtable.enable_feature)(
@@ -202,16 +216,33 @@ impl DismSession {
                 0,
                 if enable_all_dependencies { 1 } else { 0 },
                 ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
+                progress_fn,
+                user_data,
             );
             check_hresult(hr, &format!("DismEnableFeature ({feature_name})"))
         }
     }
 
-    /// Disables a Windows Optional Feature.
-    pub fn disable_feature(&self, feature_name: &str, remove_payload: bool) -> Result<()> {
+    /// Enables a Windows Optional Feature.
+    pub fn enable_feature(&self, feature_name: &str, enable_all_dependencies: bool) -> Result<()> {
+        self.enable_feature_with_progress(feature_name, enable_all_dependencies, None)
+    }
+
+    /// Disables a Windows Optional Feature with optional progress reporting.
+    pub fn disable_feature_with_progress(
+        &self,
+        feature_name: &str,
+        remove_payload: bool,
+        mut progress: Option<&mut dyn FnMut(u32, u32)>,
+    ) -> Result<()> {
         let name_wide = to_wide(feature_name);
+        let (progress_fn, user_data): (*mut c_void, *mut c_void) = match progress.as_mut() {
+            Some(cb) => (
+                progress_trampoline as *const () as *mut c_void,
+                (cb as *mut &mut dyn FnMut(u32, u32)) as *mut c_void,
+            ),
+            None => (ptr::null_mut(), ptr::null_mut()),
+        };
 
         unsafe {
             let hr = (self.lib.module.vtable.disable_feature)(
@@ -220,11 +251,16 @@ impl DismSession {
                 ptr::null(),
                 if remove_payload { 1 } else { 0 },
                 ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
+                progress_fn,
+                user_data,
             );
             check_hresult(hr, &format!("DismDisableFeature ({feature_name})"))
         }
+    }
+
+    /// Disables a Windows Optional Feature.
+    pub fn disable_feature(&self, feature_name: &str, remove_payload: bool) -> Result<()> {
+        self.disable_feature_with_progress(feature_name, remove_payload, None)
     }
 
     /// Enumerates all Windows Capabilities (Features on Demand) in this session.
@@ -297,9 +333,21 @@ impl DismSession {
         }
     }
 
-    /// Adds / Installs a Windows Capability.
-    pub fn add_capability(&self, capability_name: &str, limit_access: bool) -> Result<()> {
+    /// Adds / Installs a Windows Capability with optional progress reporting.
+    pub fn add_capability_with_progress(
+        &self,
+        capability_name: &str,
+        limit_access: bool,
+        mut progress: Option<&mut dyn FnMut(u32, u32)>,
+    ) -> Result<()> {
         let name_wide = to_wide(capability_name);
+        let (progress_fn, user_data): (*mut c_void, *mut c_void) = match progress.as_mut() {
+            Some(cb) => (
+                progress_trampoline as *const () as *mut c_void,
+                (cb as *mut &mut dyn FnMut(u32, u32)) as *mut c_void,
+            ),
+            None => (ptr::null_mut(), ptr::null_mut()),
+        };
 
         unsafe {
             let hr = (self.lib.module.vtable.add_capability)(
@@ -309,27 +357,48 @@ impl DismSession {
                 ptr::null(),
                 0,
                 ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
+                progress_fn,
+                user_data,
             );
             check_hresult(hr, &format!("DismAddCapability ({capability_name})"))
         }
     }
 
-    /// Removes / Uninstalls a Windows Capability.
-    pub fn remove_capability(&self, capability_name: &str) -> Result<()> {
+    /// Adds / Installs a Windows Capability.
+    pub fn add_capability(&self, capability_name: &str, limit_access: bool) -> Result<()> {
+        self.add_capability_with_progress(capability_name, limit_access, None)
+    }
+
+    /// Removes / Uninstalls a Windows Capability with optional progress reporting.
+    pub fn remove_capability_with_progress(
+        &self,
+        capability_name: &str,
+        mut progress: Option<&mut dyn FnMut(u32, u32)>,
+    ) -> Result<()> {
         let name_wide = to_wide(capability_name);
+        let (progress_fn, user_data): (*mut c_void, *mut c_void) = match progress.as_mut() {
+            Some(cb) => (
+                progress_trampoline as *const () as *mut c_void,
+                (cb as *mut &mut dyn FnMut(u32, u32)) as *mut c_void,
+            ),
+            None => (ptr::null_mut(), ptr::null_mut()),
+        };
 
         unsafe {
             let hr = (self.lib.module.vtable.remove_capability)(
                 self.handle,
                 name_wide.as_ptr(),
                 ptr::null_mut(),
-                ptr::null_mut(),
-                ptr::null_mut(),
+                progress_fn,
+                user_data,
             );
             check_hresult(hr, &format!("DismRemoveCapability ({capability_name})"))
         }
+    }
+
+    /// Removes / Uninstalls a Windows Capability.
+    pub fn remove_capability(&self, capability_name: &str) -> Result<()> {
+        self.remove_capability_with_progress(capability_name, None)
     }
 }
 
@@ -352,4 +421,3 @@ pub fn get_online_capabilities() -> Result<Vec<Capability>> {
     let session = DismSession::open_online()?;
     session.get_capabilities()
 }
-

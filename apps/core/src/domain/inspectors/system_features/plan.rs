@@ -29,6 +29,32 @@ pub enum FeatureAction {
     RemoveCapability(String),
 }
 
+impl FeatureAction {
+    /// Returns the inverse action needed to roll back this change.
+    pub fn inverse(&self) -> Self {
+        match self {
+            Self::EnableFeature(name) => Self::DisableFeature(name.clone()),
+            Self::DisableFeature(name) => Self::EnableFeature(name.clone()),
+            Self::AddCapability(name) => Self::RemoveCapability(name.clone()),
+            Self::RemoveCapability(name) => Self::AddCapability(name.clone()),
+        }
+    }
+}
+
+/// Renders a 20-character visual progress bar with percentage for log files.
+pub fn render_progress_bar(percent: u32) -> String {
+    let percent = percent.min(100);
+    let total_blocks = 20;
+    let filled_blocks = (percent as usize * total_blocks) / 100;
+    let empty_blocks = total_blocks - filled_blocks;
+    format!(
+        "[{}{}] {:>3}%",
+        "█".repeat(filled_blocks),
+        "░".repeat(empty_blocks),
+        percent
+    )
+}
+
 /// Strips the trailing build-specific version from a capability identity string.
 ///
 /// DISM capability identities are formatted as `Name~Arch~Lang~Version`, where segments
@@ -122,10 +148,19 @@ pub fn is_boot_critical_feature_disable(name: &str) -> Option<&'static str> {
 /// Returns a reason if enabling this optional feature is dangerous in the current environment.
 pub fn is_dangerous_feature_enable(name: &str) -> Option<String> {
     let lower = name.to_ascii_lowercase();
-    if lower == "microsoft-hyper-v-hypervisor" || lower == "hostguardian" {
+    let is_virtualization_feature = lower == "microsoft-hyper-v-hypervisor"
+        || lower == "hostguardian"
+        || lower == "containers-disposableclientvm"
+        || lower == "containers"
+        || lower == "microsoft-hyper-v"
+        || lower == "microsoft-hyper-v-all"
+        || lower == "virtualmachineplatform"
+        || lower == "hypervisorplatform";
+
+    if is_virtualization_feature {
         if let Some(vm_info) = is_running_in_virtual_machine() {
             return Some(format!(
-                "el sistema se ejecuta dentro de un entorno virtual ({vm_info}) y activar el hipervisor de Hyper-V sin virtualización anidada provoca BSOD irrecuperable en el arranque"
+                "el sistema se ejecuta dentro de un entorno virtual ({vm_info}) y activar características de virtualización/contenedores sin virtualización anidada provoca BSOD o congelamiento del arranque/entorno gráfico"
             ));
         }
     }
@@ -525,5 +560,33 @@ mod tests {
                 "Browser.InternetExplorer~~~~0.0.11.0".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn test_feature_action_inverse() {
+        assert_eq!(
+            FeatureAction::EnableFeature("TestFeature".to_string()).inverse(),
+            FeatureAction::DisableFeature("TestFeature".to_string())
+        );
+        assert_eq!(
+            FeatureAction::DisableFeature("TestFeature".to_string()).inverse(),
+            FeatureAction::EnableFeature("TestFeature".to_string())
+        );
+        assert_eq!(
+            FeatureAction::AddCapability("TestCap".to_string()).inverse(),
+            FeatureAction::RemoveCapability("TestCap".to_string())
+        );
+        assert_eq!(
+            FeatureAction::RemoveCapability("TestCap".to_string()).inverse(),
+            FeatureAction::AddCapability("TestCap".to_string())
+        );
+    }
+
+    #[test]
+    fn test_render_progress_bar() {
+        assert_eq!(render_progress_bar(0), "[░░░░░░░░░░░░░░░░░░░░]   0%");
+        assert_eq!(render_progress_bar(50), "[██████████░░░░░░░░░░]  50%");
+        assert_eq!(render_progress_bar(100), "[████████████████████] 100%");
+        assert_eq!(render_progress_bar(120), "[████████████████████] 100%");
     }
 }

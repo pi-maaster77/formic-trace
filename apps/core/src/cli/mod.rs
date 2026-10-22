@@ -18,7 +18,10 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "formic-core")]
-#[command(about = "Motor de seguridad Default-Deny para Windows", version = "0.1.0")]
+#[command(
+    about = "Motor de seguridad Default-Deny para Windows",
+    version = "0.1.0"
+)]
 pub struct Cli {
     /// Ejecuta el modo aprendizaje para calibrar la línea base del sistema (certificados, etc.)
     #[arg(long, default_value_t = false)]
@@ -36,9 +39,25 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub dump_features: bool,
 
+    /// Exporta el entorno persistente del sistema y usuario actual a TOML
+    #[arg(long, default_value_t = false)]
+    pub dump_environment: bool,
+
     /// Ruta personalizada opcional para guardar la línea base generada
-    #[arg(long, value_name = "FILE", default_value = "config/inspectors/certs/baseline.toml")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        default_value = "config/inspectors/certs/baseline.toml"
+    )]
     pub baseline_output: PathBuf,
+
+    /// Ruta del inventario TOML de variables de entorno
+    #[arg(
+        long,
+        value_name = "FILE",
+        default_value = "config/inspectors/environment/snapshot.toml"
+    )]
+    pub environment_output: PathBuf,
 
     /// Configuración Nickel para la política de certificados raíz
     #[arg(long, value_name = "FILE", default_value = "config/default.ncl")]
