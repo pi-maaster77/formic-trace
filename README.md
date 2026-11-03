@@ -68,6 +68,17 @@ Para comprobar la configuración ejecuta `cargo test -p formic-core` y `cargo ru
 
 Si Nickel no está disponible o la configuración no valida, el inspector registra el error y usa el modo de emergencia `alert_only`.
 
+### Compilar para Windows desde Linux
+
+`formic-core` solo se ejecuta en Windows. Desde Linux, indica explícitamente el target Windows; por ejemplo, para compilar un `.exe` x86_64 con GNU:
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+cargo +stable build -p formic-core --target x86_64-pc-windows-gnu
+```
+
+También se necesita un enlazador cruzado MinGW-w64 (por ejemplo, `x86_64-w64-mingw32-gcc`) disponible en `PATH`. El ejecutable queda en `target/x86_64-pc-windows-gnu/debug/formic-core.exe`. El target `x86_64-pc-windows-msvc` requiere el toolchain de MSVC (incluidos `link.exe` y `lib.exe`), que no está disponible en una instalación Linux estándar. La compilación predeterminada `cargo build` selecciona Linux y no produce un ejecutable de Windows. Si compilas dentro de una VM Windows, basta con ejecutar `cargo +stable build -p formic-core` allí.
+
 ## Variables de entorno
 
 La política está en `config/inspectors/environment/default.ncl`. Declara valores bajo `user` para el usuario actual o bajo `system` para las variables persistentes de Windows. Para exportar el inventario de ambos ámbitos a `config/inspectors/environment/snapshot.toml`, ejecuta `cargo run -p formic-core -- --dump-environment`. El comando solo lee el Registro y sobrescribe ese archivo; el TOML puede contener secretos y debe protegerse como tal. La ruta se cambia con `--environment-output FILE`.

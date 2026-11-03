@@ -1,0 +1,1 @@
+.\target\debug\formic-core.exe

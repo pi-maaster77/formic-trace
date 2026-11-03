@@ -14,6 +14,16 @@
  */
 
 use nickel_lang::ErrorFormat as NickelErrorFormat;
+use std::io::Result as IoResult;
+use std::path::{Path, PathBuf};
+
+pub(super) fn resolve_source_path(path: &Path) -> IoResult<PathBuf> {
+    match path.canonicalize() {
+        Ok(canonical_path) => Ok(canonical_path),
+        Err(_) if path.is_absolute() => Ok(path.to_path_buf()),
+        Err(_) => std::env::current_dir().map(|current_dir| current_dir.join(path)),
+    }
+}
 
 pub(super) fn format_nickel_error(error: nickel_lang::Error) -> String {
     let mut formatted = Vec::new();

@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use super::nickel::format_nickel_error;
+use super::nickel::{format_nickel_error, resolve_source_path};
 
 #[derive(Debug, Deserialize)]
 struct NickelRootSystemFeaturesConfig {
@@ -121,8 +121,7 @@ pub struct SystemFeaturesPolicy {
 
 /// Evaluates `config/default.ncl` and returns the validated system features policy.
 pub fn load_system_features_policy(config_path: &Path) -> Result<SystemFeaturesPolicy> {
-    let source_path = config_path
-        .canonicalize()
+    let source_path = resolve_source_path(config_path)
         .with_context(|| format!("no se encuentra la configuración {}", config_path.display()))?;
     let source = fs::read_to_string(&source_path)
         .with_context(|| format!("no se pudo leer {}", source_path.display()))?;

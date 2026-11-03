@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use super::nickel::format_nickel_error;
+use super::nickel::{format_nickel_error, resolve_source_path};
 
 #[derive(Debug, Deserialize)]
 struct NickelRootEnvironmentConfig {
@@ -82,8 +82,7 @@ pub struct EnvironmentPolicy {
 
 /// Evaluates `config/default.ncl` and validates the environment allowlists.
 pub fn load_environment_policy(config_path: &Path) -> Result<EnvironmentPolicy> {
-    let source_path = config_path
-        .canonicalize()
+    let source_path = resolve_source_path(config_path)
         .with_context(|| format!("no se encuentra la configuración {}", config_path.display()))?;
     let source = fs::read_to_string(&source_path)
         .with_context(|| format!("no se pudo leer {}", source_path.display()))?;

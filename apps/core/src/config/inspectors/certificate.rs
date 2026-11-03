@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use super::policy::{CertificateConfig, CertificateMode, CertificatePolicy};
-use super::nickel::format_nickel_error;
+use super::nickel::{format_nickel_error, resolve_source_path};
 
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -51,8 +51,7 @@ pub fn load_certificate_config(config_path: &Path) -> CertificateConfig {
 }
 
 fn load_policy(config_path: &Path) -> Result<CertificateConfig> {
-	let source_path = config_path
-		.canonicalize()
+	let source_path = resolve_source_path(config_path)
 		.with_context(|| format!("no se encuentra la configuración {}", config_path.display()))?;
 	let source = fs::read_to_string(&source_path)
 		.with_context(|| format!("no se pudo leer {}", source_path.display()))?;

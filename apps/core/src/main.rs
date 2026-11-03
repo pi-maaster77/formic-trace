@@ -15,31 +15,55 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(not(windows))]
+compile_error!(
+    "formic-core solo funciona en Windows; compílalo con --target x86_64-pc-windows-gnu \
+     o ejecútalo dentro de Windows"
+);
+
+#[cfg(windows)]
 mod cli;
+#[cfg(windows)]
 mod config;
+#[cfg(windows)]
 mod domain;
+#[cfg(windows)]
 mod engine;
+#[cfg(windows)]
 mod logger;
 
+#[cfg(not(windows))]
+fn main() {}
+
+#[cfg(windows)]
 use crate::domain::inspectors::environment;
+#[cfg(windows)]
 use clap::Parser;
+#[cfg(windows)]
 use cli::Cli;
+#[cfg(windows)]
 use domain::inspectors::certs::CertsInspector;
+#[cfg(windows)]
 use engine::calibrate::inspectors::InspectorsCalibrator;
+#[cfg(windows)]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+#[cfg(windows)]
 use std::thread;
 
+#[cfg(windows)]
 struct StopOnDrop(Arc<AtomicBool>);
 
+#[cfg(windows)]
 impl Drop for StopOnDrop {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Relaxed);
     }
 }
 
+#[cfg(windows)]
 fn main() {
     // El main solo crea la instancia; el componente se encarga de todo lo demás
     let args = Cli::parse();
@@ -164,6 +188,7 @@ fn main() {
     }
 }
 
+#[cfg(windows)]
 fn join_inspector(
     name: &str,
     handle: thread::JoinHandle<anyhow::Result<()>>,

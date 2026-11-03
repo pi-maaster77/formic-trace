@@ -1,0 +1,4 @@
+PS Z:\> .\target\x86_64-pc-windows-gnu\debug\formic-core.exe --inspectors-config .\config\default.ncl
+Se rechaza el monitoreo: la política Nickel de entorno no es válida: no se encuentra la configuración .\config\default.ncl: El volumen no contiene un sistema de archivos reconocido.
+Asegúrese de que todos los controladores del sistema de archivos necesarios están cargados y de que el volumen no está dañado. (os error 1005)
+PS Z:\>
