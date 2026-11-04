@@ -49,6 +49,11 @@ impl FeatureState {
         matches!(self, Self::Installed | Self::InstallPending)
     }
 
+    /// Returns true while an install or uninstall transaction is awaiting completion.
+    pub fn is_transition_pending(&self) -> bool {
+        matches!(self, Self::InstallPending | Self::UninstallPending)
+    }
+
     /// Converts from raw DISM `DismPackageFeatureState` values.
     pub fn from_u32(raw: u32) -> Self {
         match raw {
@@ -144,6 +149,8 @@ mod tests {
         assert!(FeatureState::Installed.is_installed());
         assert!(!FeatureState::NotPresent.is_installed());
         assert!(FeatureState::InstallPending.is_enabled_or_pending());
+        assert!(FeatureState::InstallPending.is_transition_pending());
+        assert!(FeatureState::UninstallPending.is_transition_pending());
+        assert!(!FeatureState::Installed.is_transition_pending());
     }
 }
-

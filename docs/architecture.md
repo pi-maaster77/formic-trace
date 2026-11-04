@@ -12,6 +12,8 @@ The environment inspector is an explicit CLI operation (`formic-core --inspect-e
 
 The system features inspector (`formic-core --inspect-system-features`) inventories and reconciles Windows Optional Features (e.g. WSL, NetFx3, Hyper-V) and Capabilities / Features on Demand (e.g. OpenSSH, Internet Explorer) against `config/inspectors/system_features/default.ncl`. All low-level FFI interaction with the Windows DISM API (`DismApi.dll`) is completely isolated in the safe library crate `libs/windows-features`, allowing `apps/core` to maintain `#![forbid(unsafe_code)]`.
 
+The inspector compares the full inventory with policy on every poll, so external state changes and previously failed actions are detected even when no prior state transition was recorded. Policy entries absent from the DISM inventory are reported but not mutated, since DISM cannot act on an unknown feature/capability identity. DISM install/uninstall-pending states are not reversed while their servicing transaction is in progress. A reboot request pauses further mutations until the process is restarted after reboot. If an operation fails, already completed operations are kept; the inspector does not attempt an automatic rollback because DISM servicing is not transactional. Failed actions are not retried until the reported DISM state changes or the process restarts. Three diagnostic reports are overwritten under the Git-ignored `puente/` directory: `system_features_01_current.txt`, `system_features_02_plan.txt`, and `system_features_03_final.txt`.
+
 ## Repository Map
 
 - `apps/core/src/cli/`: command-line arguments, including the Nickel config path.

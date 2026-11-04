@@ -15,12 +15,6 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(not(windows))]
-compile_error!(
-    "formic-core solo funciona en Windows; compílalo con --target x86_64-pc-windows-gnu \
-     o ejecútalo dentro de Windows"
-);
-
 #[cfg(windows)]
 mod cli;
 #[cfg(windows)]

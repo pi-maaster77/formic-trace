@@ -13,6 +13,7 @@
  * (at your option) any later version.                                         *
  */
 
+mod debug_reports;
 mod dump;
 mod plan;
 mod snapshot;
@@ -22,6 +23,7 @@ pub use plan::{plan_reconciliation, FeatureAction};
 pub use snapshot::SystemFeaturesSnapshot;
 
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -34,7 +36,7 @@ use windows_features::{Capability, DismError, DismSession, Feature};
 use crate::config::inspectors::{FeatureDesiredState, SystemFeaturesPolicy};
 
 use plan::{
-    find_desired_state, find_state_case_insensitive, plan_changed_reconciliation,
+    find_desired_capability_state, find_desired_state, find_state_case_insensitive,
     render_progress_bar,
 };
 use snapshot::log_snapshot;
@@ -57,15 +59,32 @@ pub fn inspect(policy: &SystemFeaturesPolicy) -> Result<()> {
 
 /// Monitors state transitions and reconciles only features that contradict policy.
 pub fn inspect_until_stopped(policy: &SystemFeaturesPolicy, running: &AtomicBool) -> Result<()> {
-    let mut snapshot = match reconcile_and_read(policy, None) {
-        Ok(snapshot) => snapshot,
+    let mut restart_required = false;
+    let mut awaiting_snapshot = false;
+    let mut failed_actions = HashSet::new();
+    let mut snapshot = match reconcile_and_read(
+        policy,
+        None,
+        true,
+        &mut restart_required,
+        &mut awaiting_snapshot,
+        &mut failed_actions,
+    ) {
+        Ok(snapshot) => Some(snapshot),
         Err(error) => {
             warn!(error = %error, "No se pudo realizar el snapshot inicial de características (¿se requieren permisos de administrador?).");
-            SystemFeaturesSnapshot::default()
+            if let Err(report_error) =
+                debug_reports::write_unavailable_reports(policy, &format!("{error:#}"))
+            {
+                error!(error = %report_error, "No se pudieron escribir los informes de depuración de características.");
+            }
+            None
         }
     };
 
-    log_snapshot(&snapshot);
+    if let Some(snapshot) = &snapshot {
+        log_snapshot(snapshot);
+    }
     info!(
         poll_interval_seconds = POLL_INTERVAL.as_secs(),
         "Monitoreo de características opcionales y capacidades activo; Ctrl+C para detener."
@@ -76,7 +95,41 @@ pub fn inspect_until_stopped(policy: &SystemFeaturesPolicy, running: &AtomicBool
         if !running.load(Ordering::Relaxed) {
             break;
         }
-        refresh_scope(policy, &mut snapshot);
+        let apply_policy = !restart_required && !awaiting_snapshot;
+        match reconcile_and_read(
+            policy,
+            snapshot.as_ref(),
+            apply_policy,
+            &mut restart_required,
+            &mut awaiting_snapshot,
+            &mut failed_actions,
+        ) {
+            Ok(current) => {
+                if awaiting_snapshot && !restart_required {
+                    awaiting_snapshot = false;
+                }
+                if snapshot.is_none() {
+                    log_snapshot(&current);
+                }
+                snapshot = Some(current);
+            }
+            Err(error) if snapshot.is_none() => {
+                warn!(error = %error, "No se pudo capturar el snapshot inicial; se volverá a intentar.");
+                if let Err(report_error) =
+                    debug_reports::write_unavailable_reports(policy, &format!("{error:#}"))
+                {
+                    error!(error = %report_error, "No se pudieron escribir los informes de depuración de características.");
+                }
+            }
+            Err(error) => {
+                error!(error = %error, "Falló la reconciliación de características del sistema.");
+                if let Err(report_error) =
+                    debug_reports::write_unavailable_reports(policy, &format!("{error:#}"))
+                {
+                    error!(error = %report_error, "No se pudieron escribir los informes de depuración de características.");
+                }
+            }
+        }
     }
 
     info!("Monitoreo de características del sistema detenido.");
@@ -86,12 +139,16 @@ pub fn inspect_until_stopped(policy: &SystemFeaturesPolicy, running: &AtomicBool
 fn reconcile_and_read(
     policy: &SystemFeaturesPolicy,
     previous: Option<&SystemFeaturesSnapshot>,
+    apply_policy: bool,
+    restart_required: &mut bool,
+    awaiting_snapshot: &mut bool,
+    failed_actions: &mut HashSet<FeatureAction>,
 ) -> Result<SystemFeaturesSnapshot> {
     let session = match DismSession::open_online() {
         Ok(session) => session,
         Err(DismError::ElevationRequired) => {
-            warn!("Se requieren permisos de Administrador para gestionar características opcionales de Windows.");
-            return Ok(SystemFeaturesSnapshot::default());
+            return Err(DismError::ElevationRequired)
+                .context("se requieren permisos de Administrador para abrir DISM");
         }
         Err(error) => return Err(error).context("falló al abrir la sesión online de DISM"),
     };
@@ -100,15 +157,46 @@ fn reconcile_and_read(
     if let Some(previous) = previous {
         log_changes(previous, &current, policy);
     }
-    let actions = match previous {
-        Some(previous) => plan_changed_reconciliation(previous, &current, policy),
-        None => plan_reconciliation(&current, policy),
+    let actions = plan_reconciliation(&current, policy);
+    failed_actions.retain(|failed| actions.contains(failed));
+    let suppressed_actions: Vec<_> = actions
+        .iter()
+        .filter(|action| failed_actions.contains(*action))
+        .cloned()
+        .collect();
+    let pause_note = if *restart_required {
+        "DISM pidió reiniciar; no se enviarán más operaciones hasta reiniciar el equipo."
+    } else if *awaiting_snapshot {
+        "Las operaciones quedan pausadas hasta obtener un inventario confiable."
+    } else if !apply_policy {
+        "Inventario de solo lectura."
+    } else {
+        "Se aplica la política a todas las diferencias detectadas."
     };
+    if let Err(error) = debug_reports::write_before_reconciliation(
+        &current,
+        policy,
+        &actions,
+        &suppressed_actions,
+        pause_note,
+    ) {
+        error!(error = %error, "No se pudieron escribir los informes de depuración previos a la reconciliación.");
+    }
 
-    let mut completed_actions: Vec<FeatureAction> = Vec::new();
-    let mut execution_error: Option<DismError> = None;
+    if !apply_policy {
+        if let Err(error) = debug_reports::write_final_report(&current, pause_note) {
+            error!(error = %error, "No se pudo escribir el informe final de características.");
+        }
+        return Ok(current);
+    }
 
-    for action in actions {
+    let mut action_attempted = false;
+
+    let runnable_actions: Vec<_> = actions
+        .into_iter()
+        .filter(|action| !failed_actions.contains(action))
+        .collect();
+    for action in runnable_actions {
         match action {
             FeatureAction::EnableFeature(ref name) => {
                 warn!(feature = %name, action = "enable", "La característica contradice la política de Nickel; se activa.");
@@ -124,10 +212,12 @@ fn reconcile_and_read(
             }
         }
 
+        action_attempted = true;
         match execute_action(&session, &action) {
             Ok(reboot_required) => {
-                completed_actions.push(action);
+                *awaiting_snapshot = true;
                 if reboot_required {
+                    *restart_required = true;
                     warn!(
                         "La operación completada solicita reiniciar el equipo. Se pausan las operaciones restantes del lote para evitar acumulación de transacciones pendientes en Windows (CBS) que puedan congelar el arranque o el entorno gráfico."
                     );
@@ -135,24 +225,48 @@ fn reconcile_and_read(
                 }
             }
             Err(error) => {
-                execution_error = Some(error);
-                break;
+                failed_actions.insert(action.clone());
+                error!(
+                    error = %error,
+                    action = ?action,
+                    "La acción falló; no se revertirán las operaciones anteriores. Se continuará con las demás diferencias."
+                );
             }
         }
     }
 
-    if let Some(error) = execution_error {
-        error!(
-            error = %error,
-            "Fallo durante la reconciliación. Iniciando rollback automático para restaurar el sistema..."
-        );
-        rollback_actions(&session, completed_actions);
-        return Err(error)
-            .context("falló la aplicación de características del sistema; se ejecutó rollback");
+    if !action_attempted {
+        if let Err(error) =
+            debug_reports::write_final_report(&current, "No había operaciones pendientes.")
+        {
+            error!(error = %error, "No se pudo escribir el informe final de características.");
+        }
+        return Ok(current);
     }
 
-    let updated = read_snapshot_from_session(&session)?;
+    let updated = match read_snapshot_from_session(&session) {
+        Ok(updated) => updated,
+        Err(error) => {
+            if let Err(report_error) = debug_reports::write_final_report(
+                &current,
+                &format!(
+                    "No se pudo verificar el resultado posterior a las operaciones: {error:#}"
+                ),
+            ) {
+                error!(error = %report_error, "No se pudo escribir el informe final de características.");
+            }
+            return Err(error)
+                .context("no se pudo verificar el inventario después de aplicar la política");
+        }
+    };
     log_changes(&current, &updated, policy);
+    *awaiting_snapshot = false;
+    if let Err(error) = debug_reports::write_final_report(
+        &updated,
+        "Inventario consultado después del lote de operaciones.",
+    ) {
+        error!(error = %error, "No se pudo escribir el informe final de características.");
+    }
     Ok(updated)
 }
 
@@ -249,43 +363,6 @@ fn execute_action(
     }
 }
 
-fn rollback_actions(session: &DismSession, completed: Vec<FeatureAction>) {
-    if completed.is_empty() {
-        return;
-    }
-
-    warn!(
-        completed_count = completed.len(),
-        "Iniciando ROLLBACK automático de las características aplicadas en esta ejecución..."
-    );
-
-    for action in completed.into_iter().rev() {
-        let inverse = action.inverse();
-        warn!(
-            original_action = ?action,
-            rollback_action = ?inverse,
-            "Aplicando rollback..."
-        );
-        match execute_action(session, &inverse) {
-            Ok(_) => {
-                info!(
-                    rollback_action = ?inverse,
-                    "Rollback de la acción completado exitosamente."
-                );
-            }
-            Err(error) => {
-                error!(
-                    rollback_action = ?inverse,
-                    error = %error,
-                    "Fallo al ejecutar el rollback para esta acción; continuando con las restantes."
-                );
-            }
-        }
-    }
-
-    info!("Proceso de ROLLBACK finalizado. El sistema fue restaurado al estado previo.");
-}
-
 fn read_snapshot_from_session(session: &DismSession) -> Result<SystemFeaturesSnapshot> {
     let mut snapshot = SystemFeaturesSnapshot::default();
     for Feature { name, state } in session
@@ -301,15 +378,6 @@ fn read_snapshot_from_session(session: &DismSession) -> Result<SystemFeaturesSna
         snapshot.capabilities.insert(name, state);
     }
     Ok(snapshot)
-}
-
-fn refresh_scope(policy: &SystemFeaturesPolicy, previous: &mut SystemFeaturesSnapshot) {
-    match reconcile_and_read(policy, Some(previous)) {
-        Ok(current) => *previous = current,
-        Err(error) => {
-            error!(error = %error, "Falló la reconciliación de características del sistema.")
-        }
-    }
 }
 
 fn log_changes(
@@ -335,7 +403,7 @@ fn log_changes(
                 name,
                 previous_state,
                 current_state,
-                find_desired_state(&policy.capabilities, name),
+                find_desired_capability_state(&policy.capabilities, name),
             );
         }
     }
@@ -354,6 +422,17 @@ fn log_state_change(
 
     let was_enabled = previous.is_enabled_or_pending();
     let is_enabled = current.is_enabled_or_pending();
+    if previous.is_transition_pending() || current.is_transition_pending() {
+        info!(
+            item_type = kind,
+            name,
+            previous_state = ?previous,
+            new_state = ?current,
+            desired_state = ?desired,
+            "Cambió el estado DISM; hay una transacción de instalación o eliminación pendiente."
+        );
+        return;
+    }
     match (was_enabled, is_enabled) {
         (false, true) => info!(
             item_type = kind,

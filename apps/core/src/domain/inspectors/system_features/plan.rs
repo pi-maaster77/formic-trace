@@ -21,7 +21,7 @@ use crate::config::inspectors::{FeatureDesiredState, SystemFeaturesPolicy};
 
 use super::snapshot::SystemFeaturesSnapshot;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FeatureAction {
     EnableFeature(String),
     DisableFeature(String),
@@ -176,19 +176,11 @@ pub fn plan_reconciliation(
 
     for (name, desired) in &policy.optional_features {
         let current = find_state_case_insensitive(&snapshot.features, name);
+        if current.is_some_and(FeatureState::is_transition_pending) {
+            continue;
+        }
         match (desired, current) {
             (FeatureDesiredState::Enabled, Some(state)) if !state.is_enabled_or_pending() => {
-                if let Some(reason) = is_dangerous_feature_enable(name) {
-                    warn!(
-                        feature = %name,
-                        reason = %reason,
-                        "Protección de arranque: se omite la activación de la característica peligrosa."
-                    );
-                    continue;
-                }
-                actions.push(FeatureAction::EnableFeature(name.clone()));
-            }
-            (FeatureDesiredState::Enabled, None) => {
                 if let Some(reason) = is_dangerous_feature_enable(name) {
                     warn!(
                         feature = %name,
@@ -221,11 +213,11 @@ pub fn plan_reconciliation(
             .map(|(real_name, _)| real_name.as_str())
             .unwrap_or(name.as_str());
 
+        if current.is_some_and(FeatureState::is_transition_pending) {
+            continue;
+        }
         match (desired, current) {
             (FeatureDesiredState::Enabled, Some(state)) if !state.is_enabled_or_pending() => {
-                actions.push(FeatureAction::AddCapability(dispatch_name.to_string()));
-            }
-            (FeatureDesiredState::Enabled, None) => {
                 actions.push(FeatureAction::AddCapability(dispatch_name.to_string()));
             }
             (FeatureDesiredState::Disabled, Some(state)) if state.is_enabled_or_pending() => {
@@ -297,86 +289,6 @@ pub(super) fn find_desired_capability_state(
         .map(|(_, state)| *state)
 }
 
-pub(super) fn plan_changed_reconciliation(
-    previous: &SystemFeaturesSnapshot,
-    current: &SystemFeaturesSnapshot,
-    policy: &SystemFeaturesPolicy,
-) -> Vec<FeatureAction> {
-    let mut actions = Vec::new();
-
-    for (name, current_state) in &current.features {
-        let Some(previous_state) = find_state_case_insensitive(&previous.features, name) else {
-            continue;
-        };
-        let was_enabled = previous_state.is_enabled_or_pending();
-        let is_enabled = current_state.is_enabled_or_pending();
-        if was_enabled == is_enabled {
-            continue;
-        }
-        match (
-            find_desired_state(&policy.optional_features, name),
-            is_enabled,
-        ) {
-            (Some(FeatureDesiredState::Enabled), false) => {
-                if let Some(reason) = is_dangerous_feature_enable(name) {
-                    warn!(
-                        feature = %name,
-                        reason = %reason,
-                        "Protección de arranque: se omite la activación de la característica peligrosa."
-                    );
-                    continue;
-                }
-                actions.push(FeatureAction::EnableFeature(name.clone()));
-            }
-            (Some(FeatureDesiredState::Disabled), true) => {
-                if let Some(reason) = is_boot_critical_feature_disable(name) {
-                    warn!(
-                        feature = %name,
-                        reason = %reason,
-                        "Protección de arranque: se omite la desactivación de la característica crítica."
-                    );
-                    continue;
-                }
-                actions.push(FeatureAction::DisableFeature(name.clone()));
-            }
-            _ => {}
-        }
-    }
-
-    for (name, current_state) in &current.capabilities {
-        let Some(previous_state) = find_state_case_insensitive(&previous.capabilities, name) else {
-            continue;
-        };
-        let was_enabled = previous_state.is_enabled_or_pending();
-        let is_enabled = current_state.is_enabled_or_pending();
-        if was_enabled == is_enabled {
-            continue;
-        }
-        match (
-            find_desired_capability_state(&policy.capabilities, name),
-            is_enabled,
-        ) {
-            (Some(FeatureDesiredState::Enabled), false) => {
-                actions.push(FeatureAction::AddCapability(name.clone()));
-            }
-            (Some(FeatureDesiredState::Disabled), true) => {
-                if let Some(reason) = is_boot_critical_capability(name) {
-                    warn!(
-                        capability = %name,
-                        reason = %reason,
-                        "Protección de arranque: se omite la eliminación de la capacidad crítica."
-                    );
-                    continue;
-                }
-                actions.push(FeatureAction::RemoveCapability(name.clone()));
-            }
-            _ => {}
-        }
-    }
-
-    actions
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,42 +320,46 @@ mod tests {
     }
 
     #[test]
-    fn changed_plan_only_corrects_managed_transitions() {
-        let previous = SystemFeaturesSnapshot {
-            features: BTreeMap::from([
-                ("managed-enabled".to_string(), FeatureState::Installed),
-                ("managed-disabled".to_string(), FeatureState::NotPresent),
-                ("unmanaged".to_string(), FeatureState::NotPresent),
-            ]),
-            capabilities: BTreeMap::new(),
-        };
-        let current = SystemFeaturesSnapshot {
-            features: BTreeMap::from([
-                ("managed-enabled".to_string(), FeatureState::NotPresent),
-                ("managed-disabled".to_string(), FeatureState::Installed),
-                ("unmanaged".to_string(), FeatureState::NotPresent),
-            ]),
-            capabilities: BTreeMap::new(),
+    fn pending_feature_and_capability_transactions_are_not_reversed() {
+        let snapshot = SystemFeaturesSnapshot {
+            features: BTreeMap::from([(
+                "PendingRemoval".to_string(),
+                FeatureState::UninstallPending,
+            )]),
+            capabilities: BTreeMap::from([(
+                "PendingInstall~~~~0.0.1.0".to_string(),
+                FeatureState::InstallPending,
+            )]),
         };
         let policy = SystemFeaturesPolicy {
-            optional_features: BTreeMap::from([
-                ("managed-enabled".to_string(), FeatureDesiredState::Enabled),
-                (
-                    "managed-disabled".to_string(),
-                    FeatureDesiredState::Disabled,
-                ),
-                ("unmanaged".to_string(), FeatureDesiredState::Enabled),
-            ]),
-            capabilities: BTreeMap::new(),
+            optional_features: BTreeMap::from([(
+                "PendingRemoval".to_string(),
+                FeatureDesiredState::Enabled,
+            )]),
+            capabilities: BTreeMap::from([(
+                "PendingInstall".to_string(),
+                FeatureDesiredState::Disabled,
+            )]),
         };
 
-        assert_eq!(
-            plan_changed_reconciliation(&previous, &current, &policy),
-            vec![
-                FeatureAction::DisableFeature("managed-disabled".to_string()),
-                FeatureAction::EnableFeature("managed-enabled".to_string()),
-            ]
-        );
+        assert!(plan_reconciliation(&snapshot, &policy).is_empty());
+    }
+
+    #[test]
+    fn policy_entries_missing_from_dism_inventory_are_not_mutated() {
+        let snapshot = SystemFeaturesSnapshot::default();
+        let policy = SystemFeaturesPolicy {
+            optional_features: BTreeMap::from([(
+                "UnknownFeature".to_string(),
+                FeatureDesiredState::Enabled,
+            )]),
+            capabilities: BTreeMap::from([(
+                "Unknown.Capability".to_string(),
+                FeatureDesiredState::Enabled,
+            )]),
+        };
+
+        assert!(plan_reconciliation(&snapshot, &policy).is_empty());
     }
 
     #[test]
@@ -512,6 +428,19 @@ mod tests {
                 FeatureAction::RemoveCapability("Browser.InternetExplorer~~~~0.0.11.0".to_string()),
                 FeatureAction::AddCapability("OpenSSH.Client~~~~0.0.1.0".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn desired_capability_state_matches_dism_versioned_name() {
+        let desired_states = BTreeMap::from([(
+            "Tpm.TpmDiagnostics".to_string(),
+            FeatureDesiredState::Enabled,
+        )]);
+
+        assert_eq!(
+            find_desired_capability_state(&desired_states, "Tpm.TpmDiagnostics~~~~0.0.1.0"),
+            Some(FeatureDesiredState::Enabled)
         );
     }
 
