@@ -29,18 +29,6 @@ pub enum FeatureAction {
     RemoveCapability(String),
 }
 
-impl FeatureAction {
-    /// Returns the inverse action needed to roll back this change.
-    pub fn inverse(&self) -> Self {
-        match self {
-            Self::EnableFeature(name) => Self::DisableFeature(name.clone()),
-            Self::DisableFeature(name) => Self::EnableFeature(name.clone()),
-            Self::AddCapability(name) => Self::RemoveCapability(name.clone()),
-            Self::RemoveCapability(name) => Self::AddCapability(name.clone()),
-        }
-    }
-}
-
 /// Renders a 20-character visual progress bar with percentage for log files.
 pub fn render_progress_bar(percent: u32) -> String {
     let percent = percent.min(100);
@@ -488,26 +476,6 @@ mod tests {
             vec![FeatureAction::RemoveCapability(
                 "Browser.InternetExplorer~~~~0.0.11.0".to_string()
             )]
-        );
-    }
-
-    #[test]
-    fn test_feature_action_inverse() {
-        assert_eq!(
-            FeatureAction::EnableFeature("TestFeature".to_string()).inverse(),
-            FeatureAction::DisableFeature("TestFeature".to_string())
-        );
-        assert_eq!(
-            FeatureAction::DisableFeature("TestFeature".to_string()).inverse(),
-            FeatureAction::EnableFeature("TestFeature".to_string())
-        );
-        assert_eq!(
-            FeatureAction::AddCapability("TestCap".to_string()).inverse(),
-            FeatureAction::RemoveCapability("TestCap".to_string())
-        );
-        assert_eq!(
-            FeatureAction::RemoveCapability("TestCap".to_string()).inverse(),
-            FeatureAction::AddCapability("TestCap".to_string())
         );
     }
 

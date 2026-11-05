@@ -148,6 +148,8 @@ pub type DismRemoveCapabilityFn = unsafe extern "system" fn(
     user_data: *mut c_void,
 ) -> i32;
 
+pub type DismGetLastErrorMessageFn = unsafe extern "system" fn(error_message: *mut *mut u16) -> i32;
+
 pub type DismDeleteFn = unsafe extern "system" fn(dism_structure: *mut c_void) -> i32;
 
 pub struct DismVtable {
@@ -163,6 +165,7 @@ pub struct DismVtable {
     pub get_capability_info: DismGetCapabilityInfoFn,
     pub add_capability: DismAddCapabilityFn,
     pub remove_capability: DismRemoveCapabilityFn,
+    pub get_last_error_message: DismGetLastErrorMessageFn,
     pub delete: DismDeleteFn,
 }
 
@@ -206,6 +209,10 @@ impl RawDismModule {
                 get_capability_info: resolve_sym!(DismGetCapabilityInfoFn, "DismGetCapabilityInfo"),
                 add_capability: resolve_sym!(DismAddCapabilityFn, "DismAddCapability"),
                 remove_capability: resolve_sym!(DismRemoveCapabilityFn, "DismRemoveCapability"),
+                get_last_error_message: resolve_sym!(
+                    DismGetLastErrorMessageFn,
+                    "DismGetLastErrorMessage"
+                ),
                 delete: resolve_sym!(DismDeleteFn, "DismDelete"),
             };
 

@@ -351,10 +351,19 @@ fn execute_action(
             Ok(true)
         }
         Err(error) => {
+            let hresult = error
+                .hresult_code()
+                .map(|code| format!("0x{:08X}", code as u32))
+                .unwrap_or_else(|| "no disponible".to_string());
+            let dism_detail = error
+                .extended_message()
+                .unwrap_or("DISM no proporcionó un mensaje extendido");
             error!(
                 item_type,
                 name,
                 action = action_label,
+                hresult = %hresult,
+                dism_detail,
                 error = %error,
                 "Fallo al ejecutar la operación."
             );

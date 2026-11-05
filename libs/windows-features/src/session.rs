@@ -76,6 +76,38 @@ pub struct DismSession {
 }
 
 impl DismSession {
+    fn check_operation_hresult(&self, hr: i32, context: &str) -> Result<()> {
+        match check_hresult(hr, context) {
+            Err(DismError::RebootRequired) => Err(DismError::RebootRequired),
+            Err(error) => match self.last_error_message() {
+                Some(detail) => Err(DismError::OperationFailed {
+                    error: Box::new(error),
+                    detail,
+                }),
+                None => Err(error),
+            },
+            result => result,
+        }
+    }
+
+    fn last_error_message(&self) -> Option<String> {
+        let mut error_message = ptr::null_mut();
+        let hr = unsafe { (self.lib.module.vtable.get_last_error_message)(&mut error_message) };
+        if error_message.is_null() {
+            return None;
+        }
+
+        if hr != 0 {
+            let _ = unsafe { (self.lib.module.vtable.delete)(error_message as *mut c_void) };
+            return None;
+        }
+
+        let message = unsafe { wide_to_string(error_message) };
+        let _ = unsafe { (self.lib.module.vtable.delete)(error_message as *mut c_void) };
+        let message = message.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!message.is_empty()).then_some(message)
+    }
+
     /// Opens a DISM session targeting the currently running Windows OS.
     pub fn open_online() -> Result<Self> {
         let lib = DismLibrary::new()?;
@@ -219,7 +251,7 @@ impl DismSession {
                 progress_fn,
                 user_data,
             );
-            check_hresult(hr, &format!("DismEnableFeature ({feature_name})"))
+            self.check_operation_hresult(hr, &format!("DismEnableFeature ({feature_name})"))
         }
     }
 
@@ -254,7 +286,7 @@ impl DismSession {
                 progress_fn,
                 user_data,
             );
-            check_hresult(hr, &format!("DismDisableFeature ({feature_name})"))
+            self.check_operation_hresult(hr, &format!("DismDisableFeature ({feature_name})"))
         }
     }
 
@@ -360,7 +392,7 @@ impl DismSession {
                 progress_fn,
                 user_data,
             );
-            check_hresult(hr, &format!("DismAddCapability ({capability_name})"))
+            self.check_operation_hresult(hr, &format!("DismAddCapability ({capability_name})"))
         }
     }
 
@@ -392,7 +424,7 @@ impl DismSession {
                 progress_fn,
                 user_data,
             );
-            check_hresult(hr, &format!("DismRemoveCapability ({capability_name})"))
+            self.check_operation_hresult(hr, &format!("DismRemoveCapability ({capability_name})"))
         }
     }
 
